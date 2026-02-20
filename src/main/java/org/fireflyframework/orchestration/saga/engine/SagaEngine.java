@@ -19,7 +19,6 @@ package org.fireflyframework.orchestration.saga.engine;
 import org.fireflyframework.orchestration.core.context.ExecutionContext;
 import org.fireflyframework.orchestration.core.dlq.DeadLetterEntry;
 import org.fireflyframework.orchestration.core.dlq.DeadLetterService;
-import org.fireflyframework.orchestration.core.model.CompensationPolicy;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.StepStatus;
@@ -52,7 +51,7 @@ public class SagaEngine {
     private final DeadLetterService dlqService;
 
     public SagaEngine(SagaRegistry registry, OrchestrationEvents events,
-                       CompensationPolicy policy, SagaExecutionOrchestrator orchestrator,
+                       SagaExecutionOrchestrator orchestrator,
                        ExecutionPersistenceProvider persistence, DeadLetterService dlqService,
                        SagaCompensator compensator) {
         this.registry = registry;
@@ -129,9 +128,10 @@ public class SagaEngine {
     private Mono<Void> saveToDlq(String sagaName, ExecutionContext ctx,
                                   SagaExecutionOrchestrator.ExecutionResult result) {
         if (dlqService == null) return Mono.empty();
-        Throwable firstError = result.getStepErrors().values().stream().findFirst().orElse(null);
-        if (firstError == null) return Mono.empty();
-        String failedStep = result.getStepErrors().keySet().stream().findFirst().orElse("unknown");
+        var firstEntry = result.getStepErrors().entrySet().stream().findFirst().orElse(null);
+        if (firstEntry == null) return Mono.empty();
+        String failedStep = firstEntry.getKey();
+        Throwable firstError = firstEntry.getValue();
         DeadLetterEntry entry = DeadLetterEntry.create(
                 sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, failedStep,
                 ExecutionStatus.FAILED, firstError, Map.of());

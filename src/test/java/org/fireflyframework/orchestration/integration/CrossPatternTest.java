@@ -64,7 +64,7 @@ class CrossPatternTest {
         // Saga engine
         var sagaOrchestrator = new SagaExecutionOrchestrator(stepInvoker, events);
         var compensator = new SagaCompensator(events, CompensationPolicy.STRICT_SEQUENTIAL, stepInvoker);
-        sagaEngine = new SagaEngine(null, events, CompensationPolicy.STRICT_SEQUENTIAL,
+        sagaEngine = new SagaEngine(null, events,
                 sagaOrchestrator, sharedPersistence, sharedDlq, compensator);
 
         // TCC engine

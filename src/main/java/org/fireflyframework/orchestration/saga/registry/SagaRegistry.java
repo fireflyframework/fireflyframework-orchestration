@@ -117,7 +117,7 @@ public class SagaRegistry {
             }
 
             validateTopology(sagaDef);
-            sagas.put(sagaName, sagaDef);
+            sagas.putIfAbsent(sagaName, sagaDef);
         }
 
         // Second pass: external steps and compensations

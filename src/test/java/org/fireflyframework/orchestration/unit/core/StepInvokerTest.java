@@ -111,6 +111,35 @@ class StepInvokerTest {
                 .verifyComplete();
     }
 
+    @SuppressWarnings("unused")
+    static class StaticMethodBean {
+        public static Mono<String> staticMethod(@Input String input) {
+            return Mono.just("static:" + input);
+        }
+    }
+
+    @Test
+    void staticMethodInvocation_works() throws Exception {
+        var bean = new StaticMethodBean();
+        var method = StaticMethodBean.class.getMethod("staticMethod", String.class);
+        var ctx = ExecutionContext.forSaga(null, "test");
+
+        StepVerifier.create(invoker.attemptCall(bean, method, "hello", ctx, 0, 0, 0, false, 0, "step1", false))
+                .expectNext("static:hello")
+                .verifyComplete();
+    }
+
+    @Test
+    void timeoutExceeded_propagatesTimeoutError() throws Exception {
+        StepHandler<String, String> slowHandler = (input, ctx) ->
+                Mono.delay(Duration.ofSeconds(5)).thenReturn("too late");
+        var ctx = ExecutionContext.forSaga(null, "test");
+
+        StepVerifier.create(invoker.attemptCallHandler(slowHandler, "hello", ctx, 50, 0, 0, false, 0, "step1"))
+                .expectError(java.util.concurrent.TimeoutException.class)
+                .verify(Duration.ofSeconds(5));
+    }
+
     @Test
     void computeDelay_noJitter_returnsBackoff() {
         assertThat(StepInvoker.computeDelay(100, false, 0)).isEqualTo(100);

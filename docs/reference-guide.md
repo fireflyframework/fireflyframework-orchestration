@@ -1543,7 +1543,7 @@ void saga_fullExecution_success() {
     var invoker = new StepInvoker(new ArgumentResolver());
     var orchestrator = new SagaExecutionOrchestrator(invoker, events);
     var compensator = new SagaCompensator(events, CompensationPolicy.STRICT_SEQUENTIAL, invoker);
-    var engine = new SagaEngine(registry, events, CompensationPolicy.STRICT_SEQUENTIAL,
+    var engine = new SagaEngine(registry, events,
         orchestrator, null, null, compensator);
 
     StepVerifier.create(engine.execute(def, StepInputs.empty()))

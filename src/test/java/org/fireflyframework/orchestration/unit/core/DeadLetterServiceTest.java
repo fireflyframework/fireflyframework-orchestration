@@ -80,6 +80,13 @@ class DeadLetterServiceTest {
     }
 
     @Test
+    void markRetried_nonexistentId_throwsError() {
+        StepVerifier.create(service.markRetried("does-not-exist"))
+                .expectError(IllegalArgumentException.class)
+                .verify();
+    }
+
+    @Test
     void getByExecutionName_filtersCorrectly() {
         var e1 = DeadLetterEntry.create("saga1", "c1", ExecutionPattern.SAGA, "s1", ExecutionStatus.FAILED, new RuntimeException("err"), Map.of());
         var e2 = DeadLetterEntry.create("saga2", "c2", ExecutionPattern.SAGA, "s1", ExecutionStatus.FAILED, new RuntimeException("err"), Map.of());

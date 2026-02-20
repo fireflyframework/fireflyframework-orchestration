@@ -28,7 +28,6 @@ import org.fireflyframework.orchestration.saga.registry.SagaStepDefinition;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -83,7 +82,11 @@ public class SagaExecutionOrchestrator {
         List<Mono<Void>> stepExecutions = layer.stream()
                 .map(stepId -> executeStepWithErrorHandling(state, stepId))
                 .toList();
-        return Mono.when(stepExecutions).then(Mono.just(state)).onErrorReturn(state);
+        return Mono.when(stepExecutions).then(Mono.just(state))
+                .onErrorResume(err -> {
+                    state.failed.set(true);
+                    return Mono.just(state);
+                });
     }
 
     private Mono<Void> executeStepWithErrorHandling(ExecutionState state, String stepId) {
@@ -119,9 +122,6 @@ public class SagaExecutionOrchestrator {
         final long start = System.currentTimeMillis();
 
         Mono<Object> execution = createStepExecution(saga, stepDef, stepId, input, ctx);
-        if (stepDef.cpuBound) {
-            execution = execution.subscribeOn(Schedulers.parallel());
-        }
 
         return execution
                 .doOnNext(result -> handleStepSuccess(saga, stepDef, stepId, result, ctx, start))

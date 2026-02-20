@@ -173,6 +173,7 @@ public class SagaCompensator {
     }
 
     // --- Single-step compensation with retry ---
+    @SuppressWarnings({"unchecked", "rawtypes"})
     private Mono<Void> compensateOneWithRetry(String sagaName, SagaDefinition saga, String stepId,
                                                Map<String, Object> stepInputs, ExecutionContext ctx,
                                                boolean swallowErrors) {
@@ -185,14 +186,18 @@ public class SagaCompensator {
 
         if (sd.handler != null) {
             Object arg = resolveCompensationArg(sd, stepInputs, ctx);
-            Mono<Object> mono = invoker.attemptCallHandler(sd.handler, arg, ctx,
-                            Math.max(0, timeoutMs), Math.max(0, retry), Math.max(0, backoffMs),
-                            sd.jitter, sd.jitterFactor, stepId + "_comp")
-                    .doOnNext(obj -> ctx.putCompensationResult(stepId, obj))
+            Mono<Void> compensation = Mono.defer(() -> ((Mono<Void>) ((StepHandler) sd.handler).compensate(arg, ctx)));
+            if (timeoutMs > 0) compensation = compensation.timeout(Duration.ofMillis(timeoutMs));
+            if (retry > 0 && backoffMs > 0) {
+                compensation = compensation.retryWhen(reactor.util.retry.Retry.fixedDelay(retry, Duration.ofMillis(backoffMs)));
+            } else if (retry > 0) {
+                compensation = compensation.retry(retry);
+            }
+            Mono<Void> mono = compensation
                     .doOnSuccess(v -> markCompensated(sagaName, stepId, ctx))
                     .doOnError(err -> markCompensationFailed(sagaName, stepId, err, ctx));
             if (swallowErrors) mono = mono.onErrorResume(err -> Mono.empty());
-            return mono.then();
+            return mono;
         }
 
         Method comp = sd.compensateInvocationMethod != null ? sd.compensateInvocationMethod : sd.compensateMethod;

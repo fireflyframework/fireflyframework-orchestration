@@ -55,8 +55,7 @@ class SagaIntegrationTest {
         var compensator = new SagaCompensator(events, CompensationPolicy.STRICT_SEQUENTIAL, stepInvoker);
         var dlqStore = new InMemoryDeadLetterStore();
         dlqService = new DeadLetterService(dlqStore, events);
-        engine = new SagaEngine(null, events, CompensationPolicy.STRICT_SEQUENTIAL,
-                orchestrator, persistence, dlqService, compensator);
+        engine = new SagaEngine(null, events, orchestrator, persistence, dlqService, compensator);
     }
 
     @Test

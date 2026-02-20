@@ -75,9 +75,9 @@ public class SagaAutoConfiguration {
                                   ExecutionPersistenceProvider persistence,
                                   ObjectProvider<DeadLetterService> dlqService,
                                   SagaCompensator compensator) {
-        CompensationPolicy policy = properties.getSaga().getCompensationPolicy();
-        log.info("[orchestration] Saga engine initialized with compensation policy: {}", policy);
-        return new SagaEngine(registry, events, policy, orchestrator,
+        log.info("[orchestration] Saga engine initialized with compensation policy: {}",
+                properties.getSaga().getCompensationPolicy());
+        return new SagaEngine(registry, events, orchestrator,
                 persistence, dlqService.getIfAvailable(), compensator);
     }
 }

@@ -24,6 +24,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.core.annotation.AnnotationUtils;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -78,7 +79,7 @@ public class TccRegistry {
 
             scanParticipants(tccDef, targetClass);
             validateDefinition(tccDef);
-            tccDefinitions.put(tccAnn.name(), tccDef);
+            tccDefinitions.putIfAbsent(tccAnn.name(), tccDef);
         }
         scanned = true;
     }
@@ -87,6 +88,11 @@ public class TccRegistry {
         for (Class<?> nestedClass : coordinatorClass.getDeclaredClasses()) {
             TccParticipant pAnn = AnnotationUtils.findAnnotation(nestedClass, TccParticipant.class);
             if (pAnn == null) continue;
+            if (!Modifier.isStatic(nestedClass.getModifiers())) {
+                throw new IllegalStateException(
+                        "TCC participant class '" + nestedClass.getName() +
+                        "' must be declared static. Non-static inner classes require an enclosing instance.");
+            }
             try {
                 Object instance = nestedClass.getDeclaredConstructor().newInstance();
                 registerParticipant(tccDef, pAnn, nestedClass, instance);

@@ -23,6 +23,7 @@ import reactor.core.scheduler.Schedulers;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.time.Duration;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -90,7 +91,10 @@ public final class StepInvoker {
     @SuppressWarnings("unchecked")
     private Mono<Object> invokeMono(Object bean, Method method, Object input, ExecutionContext ctx) {
         try {
-            if (!method.canAccess(bean)) {
+            boolean accessible = Modifier.isStatic(method.getModifiers())
+                    ? method.canAccess(null)
+                    : method.canAccess(bean);
+            if (!accessible) {
                 method.setAccessible(true);
             }
             Object[] args = argumentResolver.resolveArguments(method, input, ctx);

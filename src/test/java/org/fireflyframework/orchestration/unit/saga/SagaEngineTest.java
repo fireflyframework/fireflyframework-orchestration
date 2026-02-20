@@ -51,8 +51,7 @@ class SagaEngineTest {
         var stepInvoker = new StepInvoker(new ArgumentResolver());
         var orchestrator = new SagaExecutionOrchestrator(stepInvoker, events);
         var compensator = new SagaCompensator(events, CompensationPolicy.STRICT_SEQUENTIAL, stepInvoker);
-        engine = new SagaEngine(null, events, CompensationPolicy.STRICT_SEQUENTIAL,
-                orchestrator, null, null, compensator);
+        engine = new SagaEngine(null, events, orchestrator, null, null, compensator);
     }
 
     @Test

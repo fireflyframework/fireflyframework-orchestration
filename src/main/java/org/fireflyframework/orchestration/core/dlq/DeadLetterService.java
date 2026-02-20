@@ -47,7 +47,9 @@ public class DeadLetterService {
     public Mono<DeadLetterEntry> markRetried(String id) {
         return store.findById(id)
                 .flatMap(opt -> {
-                    if (opt.isEmpty()) return Mono.empty();
+                    if (opt.isEmpty()) {
+                        return Mono.error(new IllegalArgumentException("Dead letter entry not found: " + id));
+                    }
                     var updated = opt.get().withRetry();
                     return store.save(updated).thenReturn(updated);
                 });
