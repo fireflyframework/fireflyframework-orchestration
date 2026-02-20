@@ -19,13 +19,24 @@ package org.fireflyframework.orchestration.config;
 import org.fireflyframework.orchestration.core.argument.ArgumentResolver;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
+import org.fireflyframework.orchestration.workflow.child.ChildWorkflowService;
+import org.fireflyframework.orchestration.workflow.continueasnew.ContinueAsNewService;
 import org.fireflyframework.orchestration.workflow.engine.WorkflowEngine;
 import org.fireflyframework.orchestration.workflow.engine.WorkflowExecutor;
+import org.fireflyframework.orchestration.workflow.query.WorkflowQueryService;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowRegistry;
+import org.fireflyframework.orchestration.workflow.rest.WorkflowController;
+import org.fireflyframework.orchestration.workflow.search.SearchAttributeProjection;
+import org.fireflyframework.orchestration.workflow.search.WorkflowSearchService;
+import org.fireflyframework.orchestration.workflow.service.WorkflowService;
+import org.fireflyframework.orchestration.workflow.signal.SignalService;
+import org.fireflyframework.orchestration.workflow.timer.TimerService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 
 /**
@@ -40,9 +51,9 @@ public class WorkflowAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public WorkflowRegistry workflowRegistry() {
+    public WorkflowRegistry workflowRegistry(ApplicationContext applicationContext) {
         log.info("[orchestration] Workflow registry initialized");
-        return new WorkflowRegistry();
+        return new WorkflowRegistry(applicationContext);
     }
 
     @Bean
@@ -60,5 +71,75 @@ public class WorkflowAutoConfiguration {
                                           OrchestrationEvents events) {
         log.info("[orchestration] Workflow engine initialized");
         return new WorkflowEngine(registry, executor, persistence, events);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SignalService signalService(ExecutionPersistenceProvider persistence,
+                                        OrchestrationEvents events) {
+        return new SignalService(persistence, events);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public TimerService timerService(OrchestrationEvents events) {
+        return new TimerService(events);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ChildWorkflowService childWorkflowService(WorkflowEngine engine,
+                                                       OrchestrationEvents events) {
+        return new ChildWorkflowService(engine, events);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public WorkflowQueryService workflowQueryService(ExecutionPersistenceProvider persistence) {
+        return new WorkflowQueryService(persistence);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SearchAttributeProjection searchAttributeProjection() {
+        return new SearchAttributeProjection();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public WorkflowSearchService workflowSearchService(SearchAttributeProjection projection,
+                                                         ExecutionPersistenceProvider persistence) {
+        return new WorkflowSearchService(projection, persistence);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ContinueAsNewService continueAsNewService(WorkflowEngine engine,
+                                                       ExecutionPersistenceProvider persistence,
+                                                       OrchestrationEvents events,
+                                                       SignalService signalService,
+                                                       TimerService timerService) {
+        return new ContinueAsNewService(engine, persistence, events, signalService, timerService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public WorkflowService workflowService(WorkflowEngine engine, SignalService signalService,
+                                             TimerService timerService,
+                                             ChildWorkflowService childWorkflowService,
+                                             ContinueAsNewService continueAsNewService,
+                                             WorkflowQueryService queryService,
+                                             WorkflowSearchService searchService) {
+        log.info("[orchestration] Workflow service facade initialized");
+        return new WorkflowService(engine, signalService, timerService, childWorkflowService,
+                continueAsNewService, queryService, searchService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.REACTIVE)
+    public WorkflowController workflowController(WorkflowEngine engine, WorkflowRegistry registry) {
+        log.info("[orchestration] Workflow REST controller initialized");
+        return new WorkflowController(engine, registry);
     }
 }

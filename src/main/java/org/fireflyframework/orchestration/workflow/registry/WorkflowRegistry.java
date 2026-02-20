@@ -17,19 +17,43 @@
 package org.fireflyframework.orchestration.workflow.registry;
 
 import org.fireflyframework.orchestration.core.exception.DuplicateDefinitionException;
+import org.fireflyframework.orchestration.core.exception.ExecutionNotFoundException;
+import org.fireflyframework.orchestration.core.model.RetryPolicy;
+import org.fireflyframework.orchestration.core.model.StepTriggerMode;
+import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.core.topology.TopologyBuilder;
+import org.fireflyframework.orchestration.workflow.annotation.*;
+import org.springframework.aop.support.AopUtils;
+import org.springframework.context.ApplicationContext;
+import org.springframework.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
 
+import java.lang.reflect.Method;
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
+/**
+ * Discovers and indexes workflows from the Spring application context.
+ * Scans for beans annotated with {@link Workflow}, resolves steps, lifecycle
+ * callbacks, and validates the DAG topology.
+ */
 @Slf4j
 public class WorkflowRegistry {
 
+    private final ApplicationContext applicationContext;
     private final ConcurrentHashMap<String, WorkflowDefinition> definitions = new ConcurrentHashMap<>();
+    private volatile boolean scanned = false;
+
+    public WorkflowRegistry() {
+        this(null);
+    }
+
+    public WorkflowRegistry(ApplicationContext applicationContext) {
+        this.applicationContext = applicationContext;
+    }
 
     public void register(WorkflowDefinition definition) {
-        // Validate topology
         TopologyBuilder.validate(definition.steps(),
                 WorkflowStepDefinition::stepId,
                 WorkflowStepDefinition::dependsOn);
@@ -40,15 +64,127 @@ public class WorkflowRegistry {
         log.info("[workflow-registry] Registered workflow '{}'", definition.workflowId());
     }
 
+    public WorkflowDefinition getWorkflow(String workflowId) {
+        ensureScanned();
+        WorkflowDefinition def = definitions.get(workflowId);
+        if (def == null) {
+            throw new ExecutionNotFoundException(workflowId);
+        }
+        return def;
+    }
+
     public Optional<WorkflowDefinition> get(String workflowId) {
+        ensureScanned();
         return Optional.ofNullable(definitions.get(workflowId));
     }
 
+    public boolean hasWorkflow(String workflowId) {
+        ensureScanned();
+        return definitions.containsKey(workflowId);
+    }
+
     public Collection<WorkflowDefinition> getAll() {
+        ensureScanned();
         return Collections.unmodifiableCollection(definitions.values());
     }
 
     public void unregister(String workflowId) {
         definitions.remove(workflowId);
+    }
+
+    private synchronized void ensureScanned() {
+        if (scanned) return;
+        if (applicationContext == null) {
+            scanned = true;
+            return;
+        }
+
+        Map<String, Object> beans = applicationContext.getBeansWithAnnotation(Workflow.class);
+
+        for (Object bean : beans.values()) {
+            Class<?> targetClass = AopUtils.getTargetClass(bean);
+            Workflow wfAnn = targetClass.getAnnotation(Workflow.class);
+            if (wfAnn == null) continue;
+
+            String workflowId = StringUtils.hasText(wfAnn.id()) ? wfAnn.id() : targetClass.getSimpleName();
+            String name = StringUtils.hasText(wfAnn.name()) ? wfAnn.name() : workflowId;
+
+            // Scan @WorkflowStep methods
+            List<WorkflowStepDefinition> steps = new ArrayList<>();
+            for (Method m : targetClass.getMethods()) {
+                WorkflowStep stepAnn = m.getAnnotation(WorkflowStep.class);
+                if (stepAnn == null) continue;
+
+                String stepId = StringUtils.hasText(stepAnn.id()) ? stepAnn.id() : m.getName();
+                String stepName = StringUtils.hasText(stepAnn.name()) ? stepAnn.name() : stepId;
+
+                RetryPolicy retryPolicy = stepAnn.maxRetries() > 0
+                        ? new RetryPolicy(stepAnn.maxRetries(), Duration.ofMillis(stepAnn.retryDelayMs()),
+                                Duration.ofMinutes(5), 2.0, 0.0, new String[]{})
+                        : RetryPolicy.NO_RETRY;
+
+                Method invokeMethod = resolveInvocationMethod(bean.getClass(), m);
+
+                WorkflowStepDefinition stepDef = new WorkflowStepDefinition(
+                        stepId, stepName, stepAnn.description(),
+                        List.of(stepAnn.dependsOn()), stepAnn.order(),
+                        stepAnn.triggerMode(), stepAnn.inputEventType(), stepAnn.outputEventType(),
+                        stepAnn.timeoutMs(), retryPolicy, stepAnn.condition(),
+                        stepAnn.async(), stepAnn.compensatable(), stepAnn.compensationMethod(),
+                        bean, invokeMethod);
+
+                steps.add(stepDef);
+            }
+
+            if (steps.isEmpty()) {
+                log.warn("[workflow-registry] @Workflow '{}' has no @WorkflowStep methods, skipping", workflowId);
+                continue;
+            }
+
+            // Scan lifecycle callbacks
+            Method onStepComplete = findAnnotatedMethod(targetClass, OnStepComplete.class);
+            Method onWorkflowComplete = findAnnotatedMethod(targetClass, OnWorkflowComplete.class);
+            Method onWorkflowError = findAnnotatedMethod(targetClass, OnWorkflowError.class);
+
+            RetryPolicy wfRetryPolicy = wfAnn.maxRetries() > 0
+                    ? new RetryPolicy(wfAnn.maxRetries(), Duration.ofMillis(wfAnn.retryDelayMs()),
+                            Duration.ofMinutes(5), 2.0, 0.0, new String[]{})
+                    : RetryPolicy.NO_RETRY;
+
+            WorkflowDefinition wfDef = new WorkflowDefinition(
+                    workflowId, name, wfAnn.description(), wfAnn.version(),
+                    List.copyOf(steps), wfAnn.triggerMode(), wfAnn.triggerEventType(),
+                    wfAnn.timeoutMs(), wfRetryPolicy, bean,
+                    onStepComplete, onWorkflowComplete, onWorkflowError);
+
+            TopologyBuilder.validate(wfDef.steps(),
+                    WorkflowStepDefinition::stepId,
+                    WorkflowStepDefinition::dependsOn);
+
+            definitions.putIfAbsent(workflowId, wfDef);
+            log.info("[workflow-registry] Discovered workflow '{}' with {} steps", workflowId, steps.size());
+        }
+
+        scanned = true;
+    }
+
+    private Method findAnnotatedMethod(Class<?> clazz, Class<? extends java.lang.annotation.Annotation> annotation) {
+        for (Method m : clazz.getMethods()) {
+            if (m.isAnnotationPresent(annotation)) return m;
+        }
+        return null;
+    }
+
+    private Method resolveInvocationMethod(Class<?> beanClass, Method targetMethod) {
+        try {
+            return beanClass.getMethod(targetMethod.getName(), targetMethod.getParameterTypes());
+        } catch (NoSuchMethodException e) {
+            for (Method m : beanClass.getMethods()) {
+                if (m.getName().equals(targetMethod.getName()) && m.getParameterCount() == targetMethod.getParameterCount()) {
+                    return m;
+                }
+            }
+            return targetMethod;
+        }
     }
 }

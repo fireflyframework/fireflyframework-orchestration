@@ -51,6 +51,13 @@ public interface OrchestrationEvents {
     default void onCompositionStarted(String compositionName, String correlationId) {}
     default void onCompositionCompleted(String compositionName, String correlationId, boolean success) {}
 
+    // Signals and Timers
+    default void onSignalDelivered(String name, String correlationId, String signalName) {}
+    default void onTimerFired(String name, String correlationId, String timerId) {}
+    default void onChildWorkflowStarted(String parentName, String parentCorrelationId, String childWorkflowId, String childCorrelationId) {}
+    default void onChildWorkflowCompleted(String parentName, String parentCorrelationId, String childCorrelationId, boolean success) {}
+    default void onContinueAsNew(String name, String oldCorrelationId, String newCorrelationId) {}
+
     // Idempotency
     default void onStepSkippedIdempotent(String name, String correlationId, String stepId) {}
 

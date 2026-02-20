@@ -96,6 +96,19 @@ public final class SagaResult {
         return type.isInstance(out.result()) ? Optional.of((T) out.result()) : Optional.empty();
     }
 
+    public Map<String, Object> stepResults() {
+        Map<String, Object> results = new LinkedHashMap<>();
+        steps.forEach((k, v) -> { if (v.result() != null) results.put(k, v.result()); });
+        return Collections.unmodifiableMap(results);
+    }
+
+    public static SagaResult failed(String sagaName, String correlationId,
+                                      String failedStepId, Throwable error,
+                                      Map<String, StepOutcome> steps) {
+        return new SagaResult(sagaName, correlationId, Instant.now(), Instant.now(),
+                false, error, Map.of(), steps != null ? Map.copyOf(steps) : Map.of());
+    }
+
     public static SagaResult from(String sagaName, ExecutionContext ctx,
                                    Map<String, Boolean> compensatedFlags,
                                    Map<String, Throwable> stepErrors,
