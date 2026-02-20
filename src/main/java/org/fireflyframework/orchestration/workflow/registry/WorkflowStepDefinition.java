@@ -38,7 +38,11 @@ public record WorkflowStepDefinition(
         boolean compensatable,
         String compensationMethod,
         Object bean,
-        Method method
+        Method method,
+        String waitForSignal,
+        long signalTimeoutMs,
+        long waitForTimerDelayMs,
+        String waitForTimerId
 ) {
     public boolean hasDependencies() {
         return dependsOn != null && !dependsOn.isEmpty();

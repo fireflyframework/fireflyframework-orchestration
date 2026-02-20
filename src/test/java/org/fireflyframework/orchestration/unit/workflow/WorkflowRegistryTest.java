@@ -106,7 +106,8 @@ class WorkflowRegistryTest {
         var step = new WorkflowStepDefinition(
                 "s1", "Step 1", "", List.of(), 1,
                 StepTriggerMode.BOTH, "", "", 0,
-                RetryPolicy.NO_RETRY, "", false, false, "", null, null);
+                RetryPolicy.NO_RETRY, "", false, false, "", null, null,
+                null, 0, 0, null);
         var def = new WorkflowDefinition(
                 "test-wf", "Test", "", "1.0", List.of(step),
                 TriggerMode.SYNC, "", 30000, RetryPolicy.DEFAULT,
@@ -122,7 +123,8 @@ class WorkflowRegistryTest {
         var step = new WorkflowStepDefinition(
                 "s1", "Step 1", "", List.of(), 1,
                 StepTriggerMode.BOTH, "", "", 0,
-                RetryPolicy.NO_RETRY, "", false, false, "", null, null);
+                RetryPolicy.NO_RETRY, "", false, false, "", null, null,
+                null, 0, 0, null);
         var def = new WorkflowDefinition(
                 "dup-wf", "Dup", "", "1.0", List.of(step),
                 TriggerMode.SYNC, "", 30000, RetryPolicy.DEFAULT,

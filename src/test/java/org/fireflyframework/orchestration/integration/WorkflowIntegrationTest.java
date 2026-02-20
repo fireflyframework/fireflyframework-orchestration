@@ -47,7 +47,7 @@ class WorkflowIntegrationTest {
         persistence = new InMemoryPersistenceProvider();
         registry = new WorkflowRegistry();
         var noOpPublisher = new org.fireflyframework.orchestration.core.event.NoOpEventPublisher();
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, noOpPublisher);
+        var executor = new WorkflowExecutor(new ArgumentResolver(), events, noOpPublisher, null, null);
         engine = new WorkflowEngine(registry, executor, persistence, events, noOpPublisher);
     }
 

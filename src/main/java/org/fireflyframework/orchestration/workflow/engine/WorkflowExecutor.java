@@ -29,6 +29,8 @@ import org.fireflyframework.orchestration.core.topology.TopologyBuilder;
 import org.fireflyframework.orchestration.workflow.annotation.OnStepComplete;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowDefinition;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowStepDefinition;
+import org.fireflyframework.orchestration.workflow.signal.SignalService;
+import org.fireflyframework.orchestration.workflow.timer.TimerService;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -48,12 +50,17 @@ public class WorkflowExecutor {
     private final StepInvoker stepInvoker;
     private final OrchestrationEvents events;
     private final OrchestrationEventPublisher eventPublisher;
+    private final SignalService signalService;
+    private final TimerService timerService;
 
     public WorkflowExecutor(ArgumentResolver argumentResolver, OrchestrationEvents events,
-                             OrchestrationEventPublisher eventPublisher) {
+                             OrchestrationEventPublisher eventPublisher,
+                             SignalService signalService, TimerService timerService) {
         this.stepInvoker = new StepInvoker(argumentResolver);
         this.events = events;
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
+        this.signalService = signalService;
+        this.timerService = timerService;
     }
 
     public Mono<ExecutionContext> execute(WorkflowDefinition definition, ExecutionContext ctx) {
@@ -107,6 +114,25 @@ public class WorkflowExecutor {
                     ctx.setStepStatus(stepId, StepStatus.RUNNING);
                     ctx.markStepStarted(stepId);
 
+                    // Build the signal gate (waits for external signal before step execution)
+                    Mono<Object> preStepSignal = Mono.just(new Object());
+                    if (stepDef.waitForSignal() != null && signalService != null) {
+                        Mono<Object> signalWait = signalService.waitForSignal(
+                                ctx.getCorrelationId(), stepDef.waitForSignal())
+                                .doOnNext(payload -> ctx.putVariable(
+                                        "signal." + stepDef.waitForSignal(), payload));
+                        if (stepDef.signalTimeoutMs() > 0) {
+                            signalWait = signalWait.timeout(Duration.ofMillis(stepDef.signalTimeoutMs()));
+                        }
+                        preStepSignal = signalWait;
+                    }
+
+                    // Build the timer gate (delays execution after signal resolves)
+                    Mono<Void> preStepTimer = Mono.empty();
+                    if (stepDef.waitForTimerDelayMs() > 0 && timerService != null) {
+                        preStepTimer = timerService.delay(Duration.ofMillis(stepDef.waitForTimerDelayMs()));
+                    }
+
                     Object input = ctx.getVariables();
                     long timeout = stepDef.timeoutMs() > 0 ? stepDef.timeoutMs() : def.timeoutMs();
                     int retries = stepDef.retryPolicy() != null ? stepDef.retryPolicy().maxAttempts() - 1 : 0;
@@ -114,8 +140,11 @@ public class WorkflowExecutor {
                     boolean jitter = stepDef.retryPolicy() != null;
                     double jitterFactor = stepDef.retryPolicy() != null ? stepDef.retryPolicy().jitterFactor() : 0;
 
-                    return stepInvoker.attemptCall(stepDef.bean(), stepDef.method(), input, ctx,
-                                    timeout, retries, backoff, jitter, jitterFactor, stepId, false)
+                    // Chain: wait for signal -> wait for timer -> execute step
+                    return preStepSignal
+                            .then(preStepTimer)
+                            .then(Mono.defer(() -> stepInvoker.attemptCall(stepDef.bean(), stepDef.method(), input, ctx,
+                                    timeout, retries, backoff, jitter, jitterFactor, stepId, false)))
                             .flatMap(result -> {
                                 ctx.putResult(stepId, result);
                                 ctx.setStepStatus(stepId, StepStatus.DONE);

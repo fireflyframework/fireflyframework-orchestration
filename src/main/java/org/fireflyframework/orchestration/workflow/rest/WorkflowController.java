@@ -23,6 +23,10 @@ import org.fireflyframework.orchestration.core.rest.dto.StartExecutionRequest;
 import org.fireflyframework.orchestration.workflow.engine.WorkflowEngine;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowDefinition;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowRegistry;
+import org.fireflyframework.orchestration.workflow.signal.SignalResult;
+import org.fireflyframework.orchestration.workflow.signal.SignalService;
+import org.fireflyframework.orchestration.workflow.timer.TimerEntry;
+import org.fireflyframework.orchestration.workflow.timer.TimerService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
@@ -41,10 +45,15 @@ public class WorkflowController {
 
     private final WorkflowEngine engine;
     private final WorkflowRegistry registry;
+    private final SignalService signalService;
+    private final TimerService timerService;
 
-    public WorkflowController(WorkflowEngine engine, WorkflowRegistry registry) {
+    public WorkflowController(WorkflowEngine engine, WorkflowRegistry registry,
+                               SignalService signalService, TimerService timerService) {
         this.engine = engine;
         this.registry = registry;
+        this.signalService = signalService;
+        this.timerService = timerService;
     }
 
     // ── Definition Endpoints ──────────────────────────────────────
@@ -120,6 +129,26 @@ public class WorkflowController {
     public Flux<ExecutionSummaryDto> listInstances(@RequestParam(required = false) ExecutionStatus status) {
         if (status == null) status = ExecutionStatus.RUNNING;
         return engine.findByStatus(status).map(WorkflowController::toDto);
+    }
+
+    // ── Signal/Timer Endpoints ────────────────────────────────────
+
+    @PostMapping("/instances/{correlationId}/signal/{signalName}")
+    public Mono<SignalResult> deliverSignal(@PathVariable String correlationId,
+                                              @PathVariable String signalName,
+                                              @RequestBody(required = false) Object payload) {
+        return signalService.signal(correlationId, signalName, payload);
+    }
+
+    @GetMapping("/instances/{correlationId}/timers")
+    public Flux<TimerEntry> listTimers(@PathVariable String correlationId) {
+        return Flux.fromIterable(timerService.getPendingTimers(correlationId));
+    }
+
+    @DeleteMapping("/instances/{correlationId}/timers/{timerId}")
+    public Mono<Boolean> cancelTimer(@PathVariable String correlationId,
+                                       @PathVariable String timerId) {
+        return timerService.cancel(correlationId, timerId);
     }
 
     // ── DTOs ──────────────────────────────────────────────────────

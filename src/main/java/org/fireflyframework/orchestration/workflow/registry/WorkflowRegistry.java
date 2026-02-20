@@ -126,13 +126,23 @@ public class WorkflowRegistry {
 
                 Method invokeMethod = resolveInvocationMethod(bean.getClass(), m);
 
+                // Scan for @WaitForSignal and @WaitForTimer on the same method
+                WaitForSignal signalAnn = m.getAnnotation(WaitForSignal.class);
+                WaitForTimer timerAnn = m.getAnnotation(WaitForTimer.class);
+
+                String waitForSignal = signalAnn != null ? signalAnn.value() : null;
+                long signalTimeoutMs = signalAnn != null ? signalAnn.timeoutMs() : 0;
+                long waitForTimerDelayMs = timerAnn != null ? timerAnn.delayMs() : 0;
+                String waitForTimerId = timerAnn != null && !timerAnn.timerId().isBlank() ? timerAnn.timerId() : null;
+
                 WorkflowStepDefinition stepDef = new WorkflowStepDefinition(
                         stepId, stepName, stepAnn.description(),
                         List.of(stepAnn.dependsOn()), stepAnn.order(),
                         stepAnn.triggerMode(), stepAnn.inputEventType(), stepAnn.outputEventType(),
                         stepAnn.timeoutMs(), retryPolicy, stepAnn.condition(),
                         stepAnn.async(), stepAnn.compensatable(), stepAnn.compensationMethod(),
-                        bean, invokeMethod);
+                        bean, invokeMethod,
+                        waitForSignal, signalTimeoutMs, waitForTimerDelayMs, waitForTimerId);
 
                 steps.add(stepDef);
             }

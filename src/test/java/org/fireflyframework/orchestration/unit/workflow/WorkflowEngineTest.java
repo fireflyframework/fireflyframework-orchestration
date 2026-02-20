@@ -50,7 +50,7 @@ class WorkflowEngineTest {
         registry = new WorkflowRegistry();
         var events = new OrchestrationEvents() {};
         var noOpPublisher = new org.fireflyframework.orchestration.core.event.NoOpEventPublisher();
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, noOpPublisher);
+        var executor = new WorkflowExecutor(new ArgumentResolver(), events, noOpPublisher, null, null);
         persistence = new InMemoryPersistenceProvider();
         engine = new WorkflowEngine(registry, executor, persistence, events, noOpPublisher);
     }
@@ -78,11 +78,13 @@ class WorkflowEngineTest {
                         new WorkflowStepDefinition("step1", "Step 1", "", List.of(), 0,
                                 StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
                                 false, false, "",
-                                testSteps, TestSteps.class.getMethod("step1", Map.class)),
+                                testSteps, TestSteps.class.getMethod("step1", Map.class),
+                                null, 0, 0, null),
                         new WorkflowStepDefinition("step2", "Step 2", "", List.of("step1"), 1,
                                 StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
                                 false, false, "",
-                                testSteps, TestSteps.class.getMethod("step2", Map.class))
+                                testSteps, TestSteps.class.getMethod("step2", Map.class),
+                                null, 0, 0, null)
                 ),
                 TriggerMode.SYNC, "", 30000, RetryPolicy.DEFAULT, null, null, null, null);
     }
@@ -108,7 +110,8 @@ class WorkflowEngineTest {
                 List.of(new WorkflowStepDefinition("fail", "Fail Step", "", List.of(), 0,
                         StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
-                        testSteps, TestSteps.class.getMethod("failStep", Map.class))),
+                        testSteps, TestSteps.class.getMethod("failStep", Map.class),
+                        null, 0, 0, null)),
                 TriggerMode.SYNC, "", 30000, RetryPolicy.DEFAULT, null, null, null, null);
         registry.register(def);
 

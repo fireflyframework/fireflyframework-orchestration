@@ -61,8 +61,10 @@ public class WorkflowAutoConfiguration {
     @ConditionalOnMissingBean
     public WorkflowExecutor workflowExecutor(ArgumentResolver argumentResolver,
                                               OrchestrationEvents events,
-                                              OrchestrationEventPublisher eventPublisher) {
-        return new WorkflowExecutor(argumentResolver, events, eventPublisher);
+                                              OrchestrationEventPublisher eventPublisher,
+                                              SignalService signalService,
+                                              TimerService timerService) {
+        return new WorkflowExecutor(argumentResolver, events, eventPublisher, signalService, timerService);
     }
 
     @Bean
@@ -141,8 +143,9 @@ public class WorkflowAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.REACTIVE)
-    public WorkflowController workflowController(WorkflowEngine engine, WorkflowRegistry registry) {
+    public WorkflowController workflowController(WorkflowEngine engine, WorkflowRegistry registry,
+                                                   SignalService signalService, TimerService timerService) {
         log.info("[orchestration] Workflow REST controller initialized");
-        return new WorkflowController(engine, registry);
+        return new WorkflowController(engine, registry, signalService, timerService);
     }
 }

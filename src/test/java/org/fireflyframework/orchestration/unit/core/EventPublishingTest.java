@@ -334,7 +334,7 @@ class EventPublishingTest {
 
     @Test
     void workflow_executionStartedAndCompleted_publishesLifecycleEvents() throws Exception {
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher);
+        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
         var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
@@ -344,7 +344,8 @@ class EventPublishingTest {
                 List.of(new WorkflowStepDefinition("step1", "Step 1", "", List.of(), 0,
                         StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
-                        testSteps, TestWorkflowSteps.class.getMethod("step1", Map.class))),
+                        testSteps, TestWorkflowSteps.class.getMethod("step1", Map.class),
+                        null, 0, 0, null)),
                 TriggerMode.SYNC, "", 30000, RetryPolicy.DEFAULT, null, null, null, null);
         registry.register(def);
 
@@ -363,7 +364,7 @@ class EventPublishingTest {
 
     @Test
     void workflow_stepWithOutputEventType_publishesStepEvent() throws Exception {
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher);
+        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
         var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
@@ -373,7 +374,8 @@ class EventPublishingTest {
                 List.of(new WorkflowStepDefinition("step1", "Step 1", "", List.of(), 0,
                         StepTriggerMode.BOTH, "", "OrderProcessed", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
-                        testSteps, TestWorkflowSteps.class.getMethod("step1", Map.class))),
+                        testSteps, TestWorkflowSteps.class.getMethod("step1", Map.class),
+                        null, 0, 0, null)),
                 TriggerMode.SYNC, "", 30000, RetryPolicy.DEFAULT, null, null, null, null);
         registry.register(def);
 
@@ -397,7 +399,7 @@ class EventPublishingTest {
 
     @Test
     void workflow_stepWithBlankOutputEventType_doesNotPublishStepEvent() throws Exception {
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher);
+        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
         var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
@@ -407,7 +409,8 @@ class EventPublishingTest {
                 List.of(new WorkflowStepDefinition("step1", "Step 1", "", List.of(), 0,
                         StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
-                        testSteps, TestWorkflowSteps.class.getMethod("step1", Map.class))),
+                        testSteps, TestWorkflowSteps.class.getMethod("step1", Map.class),
+                        null, 0, 0, null)),
                 TriggerMode.SYNC, "", 30000, RetryPolicy.DEFAULT, null, null, null, null);
         registry.register(def);
 
@@ -426,7 +429,7 @@ class EventPublishingTest {
 
     @Test
     void workflow_failedExecution_publishesCompletedWithFailedStatus() throws Exception {
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher);
+        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
         var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
@@ -436,7 +439,8 @@ class EventPublishingTest {
                 List.of(new WorkflowStepDefinition("fail", "Fail", "", List.of(), 0,
                         StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
-                        testSteps, TestWorkflowSteps.class.getMethod("failStep", Map.class))),
+                        testSteps, TestWorkflowSteps.class.getMethod("failStep", Map.class),
+                        null, 0, 0, null)),
                 TriggerMode.SYNC, "", 30000, RetryPolicy.DEFAULT, null, null, null, null);
         registry.register(def);
 

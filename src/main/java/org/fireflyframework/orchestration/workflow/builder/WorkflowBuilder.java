@@ -92,6 +92,10 @@ public class WorkflowBuilder {
         private RetryPolicy retryPolicy;
         private Object bean;
         private Method method;
+        private String waitForSignal;
+        private long signalTimeoutMs = 0;
+        private long waitForTimerDelayMs = 0;
+        private String waitForTimerId;
 
         StepBuilder(WorkflowBuilder parent, String stepId) {
             this.parent = parent;
@@ -135,10 +139,33 @@ public class WorkflowBuilder {
             return this;
         }
 
+        public StepBuilder waitForSignal(String signalName) {
+            this.waitForSignal = signalName;
+            return this;
+        }
+
+        public StepBuilder waitForSignal(String signalName, long timeoutMs) {
+            this.waitForSignal = signalName;
+            this.signalTimeoutMs = timeoutMs;
+            return this;
+        }
+
+        public StepBuilder waitForTimer(long delayMs) {
+            this.waitForTimerDelayMs = delayMs;
+            return this;
+        }
+
+        public StepBuilder waitForTimer(long delayMs, String timerId) {
+            this.waitForTimerDelayMs = delayMs;
+            this.waitForTimerId = timerId;
+            return this;
+        }
+
         public WorkflowBuilder add() {
             var stepDef = new WorkflowStepDefinition(stepId, name, description, dependsOn, order,
                     StepTriggerMode.BOTH, "", "", timeoutMs, retryPolicy, "",
-                    false, false, "", bean, method);
+                    false, false, "", bean, method,
+                    waitForSignal, signalTimeoutMs, waitForTimerDelayMs, waitForTimerId);
             return parent.addStep(stepDef);
         }
     }
