@@ -32,6 +32,9 @@ import org.fireflyframework.orchestration.workflow.registry.WorkflowStepDefiniti
 import org.fireflyframework.orchestration.workflow.signal.SignalService;
 import org.fireflyframework.orchestration.workflow.timer.TimerService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.expression.ExpressionParser;
+import org.springframework.expression.spel.standard.SpelExpressionParser;
+import org.springframework.expression.spel.support.StandardEvaluationContext;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -110,6 +113,30 @@ public class WorkflowExecutor {
                         return Mono.<Void>empty();
                     }
 
+                    // Evaluate condition expression (SpEL) — before signal/timer gates
+                    if (stepDef.condition() != null && !stepDef.condition().isBlank()) {
+                        try {
+                            ExpressionParser parser = new SpelExpressionParser();
+                            StandardEvaluationContext evalCtx = new StandardEvaluationContext();
+                            evalCtx.setVariable("ctx", ctx);
+                            evalCtx.setVariable("results", ctx.getStepResults());
+                            evalCtx.setVariable("variables", ctx.getVariables());
+                            evalCtx.setVariable("headers", ctx.getHeaders());
+                            Boolean result = parser.parseExpression(stepDef.condition())
+                                    .getValue(evalCtx, Boolean.class);
+                            if (Boolean.FALSE.equals(result)) {
+                                ctx.setStepStatus(stepId, StepStatus.SKIPPED);
+                                events.onStepSkipped(def.workflowId(), ctx.getCorrelationId(), stepId);
+                                return Mono.<Void>empty();
+                            }
+                        } catch (Exception e) {
+                            ctx.setStepStatus(stepId, StepStatus.FAILED);
+                            events.onStepFailed(def.workflowId(), ctx.getCorrelationId(), stepId, e, 1);
+                            return Mono.<Void>error(new StepExecutionException(
+                                    stepId, "Condition evaluation failed: " + e.getMessage(), e));
+                        }
+                    }
+
                     events.onStepStarted(def.workflowId(), ctx.getCorrelationId(), stepId);
                     ctx.setStepStatus(stepId, StepStatus.RUNNING);
                     ctx.markStepStarted(stepId);
@@ -140,11 +167,35 @@ public class WorkflowExecutor {
                     boolean jitter = stepDef.retryPolicy() != null;
                     double jitterFactor = stepDef.retryPolicy() != null ? stepDef.retryPolicy().jitterFactor() : 0;
 
-                    // Chain: wait for signal -> wait for timer -> execute step
-                    return preStepSignal
+                    // Build the step invocation chain
+                    Mono<Object> stepInvocation = preStepSignal
                             .then(preStepTimer)
                             .then(Mono.defer(() -> stepInvoker.attemptCall(stepDef.bean(), stepDef.method(), input, ctx,
-                                    timeout, retries, backoff, jitter, jitterFactor, stepId, false)))
+                                    timeout, retries, backoff, jitter, jitterFactor, stepId, false)));
+
+                    // Async step: fire-and-forget, workflow continues immediately
+                    if (stepDef.async()) {
+                        stepInvocation.subscribeOn(Schedulers.boundedElastic())
+                                .subscribe(
+                                        result -> {
+                                            ctx.putResult(stepId, result);
+                                            ctx.setStepStatus(stepId, StepStatus.DONE);
+                                            long latency = Duration.between(ctx.getStepStartedAt(stepId), Instant.now()).toMillis();
+                                            ctx.setStepLatency(stepId, latency);
+                                            events.onStepSuccess(def.workflowId(), ctx.getCorrelationId(), stepId,
+                                                    ctx.getAttempts(stepId), latency);
+                                        },
+                                        error -> {
+                                            ctx.setStepStatus(stepId, StepStatus.FAILED);
+                                            events.onStepFailed(def.workflowId(), ctx.getCorrelationId(), stepId,
+                                                    error, ctx.getAttempts(stepId));
+                                        }
+                                );
+                        return Mono.<Void>empty();
+                    }
+
+                    // Synchronous step: chain with result/error handling
+                    return stepInvocation
                             .flatMap(result -> {
                                 ctx.putResult(stepId, result);
                                 ctx.setStepStatus(stepId, StepStatus.DONE);
