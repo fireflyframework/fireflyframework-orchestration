@@ -20,6 +20,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Slf4j
 public class OrchestrationScheduler {
@@ -27,8 +28,9 @@ public class OrchestrationScheduler {
     private final Map<String, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
 
     public OrchestrationScheduler(int threadPoolSize) {
+        var counter = new AtomicInteger(0);
         this.executor = Executors.newScheduledThreadPool(threadPoolSize, r -> {
-            Thread t = new Thread(r, "orchestration-scheduler");
+            Thread t = new Thread(r, "orchestration-scheduler-" + counter.incrementAndGet());
             t.setDaemon(true);
             return t;
         });
@@ -42,7 +44,10 @@ public class OrchestrationScheduler {
                 log.error("[scheduler] Task '{}' failed: {}", taskId, e.getMessage(), e);
             }
         }, initialDelayMs, periodMs, TimeUnit.MILLISECONDS);
-        scheduledTasks.put(taskId, future);
+        var existing = scheduledTasks.put(taskId, future);
+        if (existing != null) {
+            existing.cancel(false);
+        }
         log.info("[scheduler] Scheduled task '{}' with period {}ms", taskId, periodMs);
     }
 
@@ -61,8 +66,18 @@ public class OrchestrationScheduler {
     }
 
     public void shutdown() {
+        scheduledTasks.values().forEach(f -> f.cancel(false));
+        scheduledTasks.clear();
         executor.shutdown();
-        log.info("[scheduler] Scheduler shutdown initiated");
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+        log.info("[scheduler] Scheduler shutdown completed");
     }
 
     public int activeTaskCount() {

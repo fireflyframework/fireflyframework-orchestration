@@ -25,6 +25,7 @@ import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Objects;
 
 @Slf4j
 public class RecoveryService {
@@ -33,8 +34,12 @@ public class RecoveryService {
     private final Duration staleThreshold;
 
     public RecoveryService(ExecutionPersistenceProvider persistence, OrchestrationEvents events, Duration staleThreshold) {
-        this.persistence = persistence;
-        this.events = events;
+        this.persistence = Objects.requireNonNull(persistence, "persistence");
+        this.events = Objects.requireNonNull(events, "events");
+        Objects.requireNonNull(staleThreshold, "staleThreshold must not be null");
+        if (staleThreshold.isNegative() || staleThreshold.isZero()) {
+            throw new IllegalArgumentException("staleThreshold must be positive, got: " + staleThreshold);
+        }
         this.staleThreshold = staleThreshold;
     }
 
@@ -44,6 +49,7 @@ public class RecoveryService {
 
     public Mono<Long> cleanupCompletedExecutions(Duration olderThan) {
         return persistence.cleanup(olderThan)
-                .doOnNext(count -> log.info("[recovery] cleaned up {} completed executions older than {}", count, olderThan));
+                .doOnNext(count -> log.info("[recovery] cleaned up {} completed executions older than {}", count, olderThan))
+                .doOnError(err -> log.error("[recovery] cleanup failed for duration {}", olderThan, err));
     }
 }

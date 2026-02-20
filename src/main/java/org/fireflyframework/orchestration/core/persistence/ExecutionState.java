@@ -22,6 +22,7 @@ import org.fireflyframework.orchestration.core.model.StepStatus;
 
 import java.time.Instant;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public record ExecutionState(
         String correlationId,
@@ -41,14 +42,22 @@ public record ExecutionState(
         Instant updatedAt
 ) {
     public ExecutionState {
-        stepResults = stepResults != null ? Map.copyOf(stepResults) : Map.of();
+        stepResults = nullSafeCopy(stepResults);
         stepStatuses = stepStatuses != null ? Map.copyOf(stepStatuses) : Map.of();
         stepAttempts = stepAttempts != null ? Map.copyOf(stepAttempts) : Map.of();
         stepLatenciesMs = stepLatenciesMs != null ? Map.copyOf(stepLatenciesMs) : Map.of();
-        variables = variables != null ? Map.copyOf(variables) : Map.of();
+        variables = nullSafeCopy(variables);
         headers = headers != null ? Map.copyOf(headers) : Map.of();
         idempotencyKeys = idempotencyKeys != null ? Set.copyOf(idempotencyKeys) : Set.of();
-        topologyLayers = topologyLayers != null ? List.copyOf(topologyLayers) : List.of();
+        topologyLayers = topologyLayers != null
+                ? topologyLayers.stream().map(List::copyOf).collect(Collectors.toUnmodifiableList())
+                : List.of();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <K, V> Map<K, V> nullSafeCopy(Map<K, V> source) {
+        if (source == null) return Map.of();
+        return Collections.unmodifiableMap(new HashMap<>(source));
     }
 
     public ExecutionState withStatus(ExecutionStatus newStatus) {

@@ -106,7 +106,7 @@ public class SagaCompensator {
         List<String> reversed = new ArrayList<>(completionOrder);
         Collections.reverse(reversed);
         return Flux.fromIterable(reversed)
-                .concatMap(stepId -> compensateOneWithRetry(sagaName, saga, stepId, stepInputs, ctx))
+                .concatMap(stepId -> compensateOneWithRetry(sagaName, saga, stepId, stepInputs, ctx, true))
                 .then();
     }
 
@@ -120,7 +120,7 @@ public class SagaCompensator {
         return Flux.fromIterable(reversed)
                 .concatMap(stepId -> {
                     if (circuitOpen[0]) return Mono.empty();
-                    return compensateOneWithRetry(sagaName, saga, stepId, stepInputs, ctx)
+                    return compensateOneWithRetry(sagaName, saga, stepId, stepInputs, ctx, false)
                             .onErrorResume(err -> {
                                 SagaStepDefinition sd = saga.steps.get(stepId);
                                 if (sd != null && sd.compensationCritical) {
@@ -174,7 +174,8 @@ public class SagaCompensator {
 
     // --- Single-step compensation with retry ---
     private Mono<Void> compensateOneWithRetry(String sagaName, SagaDefinition saga, String stepId,
-                                               Map<String, Object> stepInputs, ExecutionContext ctx) {
+                                               Map<String, Object> stepInputs, ExecutionContext ctx,
+                                               boolean swallowErrors) {
         SagaStepDefinition sd = saga.steps.get(stepId);
         if (sd == null) return Mono.empty();
 
@@ -184,28 +185,28 @@ public class SagaCompensator {
 
         if (sd.handler != null) {
             Object arg = resolveCompensationArg(sd, stepInputs, ctx);
-            return invoker.attemptCallHandler(sd.handler, arg, ctx,
+            Mono<Object> mono = invoker.attemptCallHandler(sd.handler, arg, ctx,
                             Math.max(0, timeoutMs), Math.max(0, retry), Math.max(0, backoffMs),
                             sd.jitter, sd.jitterFactor, stepId + "_comp")
                     .doOnNext(obj -> ctx.putCompensationResult(stepId, obj))
                     .doOnSuccess(v -> markCompensated(sagaName, stepId, ctx))
-                    .doOnError(err -> markCompensationFailed(sagaName, stepId, err, ctx))
-                    .onErrorResume(err -> Mono.empty())
-                    .then();
+                    .doOnError(err -> markCompensationFailed(sagaName, stepId, err, ctx));
+            if (swallowErrors) mono = mono.onErrorResume(err -> Mono.empty());
+            return mono.then();
         }
 
         Method comp = sd.compensateInvocationMethod != null ? sd.compensateInvocationMethod : sd.compensateMethod;
         if (comp == null) return Mono.empty();
         Object arg = resolveMethodCompensationArg(comp, stepInputs.get(stepId), ctx.getResult(stepId));
         Object targetBean = sd.compensateBean != null ? sd.compensateBean : saga.bean;
-        return invoker.attemptCall(targetBean, comp, arg, ctx,
+        Mono<Object> mono = invoker.attemptCall(targetBean, comp, arg, ctx,
                         Math.max(0, timeoutMs), Math.max(0, retry), Math.max(0, backoffMs),
                         sd.jitter, sd.jitterFactor, stepId + "_comp", false)
                 .doOnNext(obj -> ctx.putCompensationResult(stepId, obj))
                 .doOnSuccess(v -> markCompensated(sagaName, stepId, ctx))
-                .doOnError(err -> markCompensationFailed(sagaName, stepId, err, ctx))
-                .onErrorResume(err -> Mono.empty())
-                .then();
+                .doOnError(err -> markCompensationFailed(sagaName, stepId, err, ctx));
+        if (swallowErrors) mono = mono.onErrorResume(err -> Mono.empty());
+        return mono.then();
     }
 
     @SuppressWarnings("unchecked")

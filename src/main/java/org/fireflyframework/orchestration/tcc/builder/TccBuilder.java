@@ -146,6 +146,15 @@ public class TccBuilder {
             return this;
         }
 
+        private void resolveConventionMethods(Object bean) {
+            Class<?> clazz = bean.getClass();
+            for (Method m : clazz.getMethods()) {
+                if (m.getName().equals("doTry") && tryMethod == null) tryMethod = m;
+                else if (m.getName().equals("doConfirm") && confirmMethod == null) confirmMethod = m;
+                else if (m.getName().equals("doCancel") && cancelMethod == null) cancelMethod = m;
+            }
+        }
+
         private void ensureHandlerBean() {
             if (this.handlerBean == null || !(this.handlerBean instanceof LambdaParticipantHandler)) {
                 this.handlerBean = new LambdaParticipantHandler();
@@ -170,10 +179,14 @@ public class TccBuilder {
                 } catch (NoSuchMethodException e) {
                     throw new IllegalStateException("Internal error: handler methods not found", e);
                 }
+            } else {
+                // Convention-based: resolve doTry/doConfirm/doCancel methods on the bean
+                resolveConventionMethods(handlerBean);
             }
 
             if (tryMethod == null || confirmMethod == null || cancelMethod == null) {
-                throw new IllegalStateException("Participant '" + id + "' must have try, confirm, and cancel methods");
+                throw new IllegalStateException("Participant '" + id + "' must have try, confirm, and cancel methods " +
+                        "(provide doTry/doConfirm/doCancel methods or use tryHandler/confirmHandler/cancelHandler)");
             }
 
             TccParticipantDefinition pd = new TccParticipantDefinition(

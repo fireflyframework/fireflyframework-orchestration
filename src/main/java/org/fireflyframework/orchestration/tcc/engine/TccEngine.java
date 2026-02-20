@@ -83,7 +83,13 @@ public class TccEngine {
 
         return persistInitialState(tcc, finalCtx)
                 .then(orchestrator.orchestrate(tcc, inputs, finalCtx))
-                .flatMap(result -> handleResult(result, tcc));
+                .flatMap(result -> handleResult(result, tcc))
+                .onErrorResume(err -> {
+                    log.error("[tcc] Unexpected error executing TCC '{}': {}", tcc.name, err.getMessage(), err);
+                    return persistFinalState(finalCtx, ExecutionStatus.FAILED)
+                            .then(Mono.just(TccResult.failed(tcc.name, finalCtx,
+                                    null, null, err, Map.of())));
+                });
     }
 
     private Mono<TccResult> handleResult(TccExecutionOrchestrator.OrchestratorResult result,
@@ -114,18 +120,20 @@ public class TccEngine {
         }
 
         Mono<Void> persist = persistFinalState(ctx, finalStatus);
-        Mono<Void> dlq = success ? Mono.empty() : saveToDlq(tcc.name, ctx, result);
+        // Only DLQ truly failed transactions — CANCELED is controlled rollback, not a failure
+        Mono<Void> dlq = (finalStatus == ExecutionStatus.FAILED) ? saveToDlq(tcc.name, ctx, result, finalStatus) : Mono.empty();
 
         return persist.then(dlq).thenReturn(tccResult);
     }
 
     private Mono<Void> saveToDlq(String tccName, ExecutionContext ctx,
-                                  TccExecutionOrchestrator.OrchestratorResult result) {
+                                  TccExecutionOrchestrator.OrchestratorResult result,
+                                  ExecutionStatus status) {
         if (dlqService == null || result.getFailureError() == null) return Mono.empty();
         String failedId = result.getFailedParticipantId() != null ? result.getFailedParticipantId() : "unknown";
         DeadLetterEntry entry = DeadLetterEntry.create(
                 tccName, ctx.getCorrelationId(), ExecutionPattern.TCC, failedId,
-                ExecutionStatus.FAILED, result.getFailureError(), Map.of());
+                status, result.getFailureError(), Map.of());
         return dlqService.deadLetter(entry)
                 .onErrorResume(err -> {
                     log.warn("[tcc] Failed to save to DLQ: {}", ctx.getCorrelationId(), err);

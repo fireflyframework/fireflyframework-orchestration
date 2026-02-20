@@ -147,7 +147,7 @@ public class TccExecutionOrchestrator {
                             participantId, err, state.ctx.getAttempts(participantId));
 
                     if (pd.optional) {
-                        state.triedParticipants.add(participantId);
+                        // Do NOT add to triedParticipants — no successful try means nothing to cancel
                         return Mono.just(true);
                     }
                     return Mono.just(false);
@@ -281,6 +281,9 @@ public class TccExecutionOrchestrator {
                 .onErrorResume(err -> {
                     log.warn("[tcc] Cancel failed for participant {} in TCC {}: {}",
                             participantId, state.tccDef.name, err.getMessage());
+                    state.failedParticipantId = participantId;
+                    state.failureError = err;
+                    state.failedPhase = TccPhase.CANCEL;
                     events.onParticipantFailed(state.tccDef.name, state.ctx.getCorrelationId(),
                             participantId, TccPhase.CANCEL, err);
                     // Cancel failures are best-effort — don't stop canceling other participants

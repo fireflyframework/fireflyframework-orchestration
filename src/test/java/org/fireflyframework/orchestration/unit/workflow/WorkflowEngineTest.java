@@ -124,14 +124,29 @@ class WorkflowEngineTest {
     }
 
     @Test
-    void cancelWorkflow_updatesStatus() throws Exception {
+    void cancelWorkflow_runningWorkflow_cancelledSuccessfully() {
+        // Directly persist a RUNNING state to simulate an in-progress workflow
+        var runningState = new org.fireflyframework.orchestration.core.persistence.ExecutionState(
+                "cancel-test-id", "simple-wf",
+                org.fireflyframework.orchestration.core.model.ExecutionPattern.WORKFLOW,
+                ExecutionStatus.RUNNING, Map.of(), Map.of(), Map.of(), Map.of(),
+                Map.of(), Map.of(), java.util.Set.of(), List.of(), null,
+                java.time.Instant.now(), java.time.Instant.now());
+
+        StepVerifier.create(persistence.save(runningState)
+                .then(engine.cancelWorkflow("cancel-test-id")))
+                .assertNext(state -> assertThat(state.status()).isEqualTo(ExecutionStatus.CANCELLED))
+                .verifyComplete();
+    }
+
+    @Test
+    void cancelWorkflow_completedWorkflow_rejectsWithError() throws Exception {
         var def = createSimpleWorkflow();
         registry.register(def);
 
         StepVerifier.create(engine.startWorkflow("simple-wf", Map.of())
-                .flatMap(state -> engine.cancelWorkflow(state.correlationId())
-                        .then(persistence.findById(state.correlationId()))))
-                .assertNext(opt -> assertThat(opt.get().status()).isEqualTo(ExecutionStatus.CANCELLED))
-                .verifyComplete();
+                .flatMap(state -> engine.cancelWorkflow(state.correlationId())))
+                .expectError(IllegalStateException.class)
+                .verify();
     }
 }

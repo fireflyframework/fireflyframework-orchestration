@@ -18,6 +18,7 @@ package org.fireflyframework.orchestration.workflow.engine;
 
 import org.fireflyframework.orchestration.core.argument.ArgumentResolver;
 import org.fireflyframework.orchestration.core.context.ExecutionContext;
+import org.fireflyframework.orchestration.core.exception.StepExecutionException;
 import org.fireflyframework.orchestration.core.model.StepStatus;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
@@ -44,7 +45,6 @@ public class WorkflowExecutor {
     }
 
     public Mono<ExecutionContext> execute(WorkflowDefinition definition, ExecutionContext ctx) {
-        // Build topology layers
         List<List<String>> layers = TopologyBuilder.buildLayers(
                 definition.steps(), WorkflowStepDefinition::stepId, WorkflowStepDefinition::dependsOn);
         ctx.setTopologyLayers(layers);
@@ -58,6 +58,14 @@ public class WorkflowExecutor {
             return Mono.just(ctx);
         }
 
+        // Check if any previous step failed before proceeding to next layer
+        boolean hasFailed = ctx.getStepStatuses().values().stream()
+                .anyMatch(s -> s == StepStatus.FAILED);
+        if (hasFailed) {
+            return Mono.error(new StepExecutionException(
+                    "layer-" + layerIndex, "Workflow halted: a previous step failed"));
+        }
+
         List<String> layer = layers.get(layerIndex);
 
         return executeLayer(def, ctx, layer)
@@ -68,7 +76,6 @@ public class WorkflowExecutor {
         if (stepIds.size() == 1) {
             return executeStep(def, ctx, stepIds.get(0));
         }
-        // Parallel execution within layer
         return Flux.fromIterable(stepIds)
                 .flatMap(stepId -> executeStep(def, ctx, stepId))
                 .then();
@@ -77,6 +84,13 @@ public class WorkflowExecutor {
     private Mono<Void> executeStep(WorkflowDefinition def, ExecutionContext ctx, String stepId) {
         return def.findStep(stepId)
                 .map(stepDef -> {
+                    // Skip already-completed steps (for resume scenarios)
+                    StepStatus currentStatus = ctx.getStepStatus(stepId);
+                    if (currentStatus == StepStatus.DONE) {
+                        log.debug("[workflow] Skipping already-completed step '{}'", stepId);
+                        return Mono.<Void>empty();
+                    }
+
                     events.onStepStarted(def.workflowId(), ctx.getCorrelationId(), stepId);
                     ctx.setStepStatus(stepId, StepStatus.RUNNING);
                     ctx.markStepStarted(stepId);
@@ -85,9 +99,11 @@ public class WorkflowExecutor {
                     long timeout = stepDef.timeoutMs() > 0 ? stepDef.timeoutMs() : def.timeoutMs();
                     int retries = stepDef.retryPolicy() != null ? stepDef.retryPolicy().maxAttempts() - 1 : 0;
                     long backoff = stepDef.retryPolicy() != null ? stepDef.retryPolicy().initialDelay().toMillis() : 1000;
+                    boolean jitter = stepDef.retryPolicy() != null;
+                    double jitterFactor = stepDef.retryPolicy() != null ? stepDef.retryPolicy().jitterFactor() : 0;
 
                     return stepInvoker.attemptCall(stepDef.bean(), stepDef.method(), input, ctx,
-                                    timeout, retries, backoff, false, 0, stepId, false)
+                                    timeout, retries, backoff, jitter, jitterFactor, stepId, false)
                             .doOnNext(result -> {
                                 ctx.putResult(stepId, result);
                                 ctx.setStepStatus(stepId, StepStatus.DONE);
@@ -96,6 +112,14 @@ public class WorkflowExecutor {
                                 events.onStepSuccess(def.workflowId(), ctx.getCorrelationId(), stepId,
                                         ctx.getAttempts(stepId), latency);
                             })
+                            .switchIfEmpty(Mono.defer(() -> {
+                                ctx.setStepStatus(stepId, StepStatus.DONE);
+                                long latency = Duration.between(ctx.getStepStartedAt(stepId), Instant.now()).toMillis();
+                                ctx.setStepLatency(stepId, latency);
+                                events.onStepSuccess(def.workflowId(), ctx.getCorrelationId(), stepId,
+                                        ctx.getAttempts(stepId), latency);
+                                return Mono.empty();
+                            }))
                             .onErrorResume(error -> {
                                 ctx.setStepStatus(stepId, StepStatus.FAILED);
                                 events.onStepFailed(def.workflowId(), ctx.getCorrelationId(), stepId,
@@ -104,6 +128,7 @@ public class WorkflowExecutor {
                             })
                             .then();
                 })
-                .orElse(Mono.empty());
+                .orElseGet(() -> Mono.error(new StepExecutionException(
+                        stepId, "Step not found in workflow definition")));
     }
 }

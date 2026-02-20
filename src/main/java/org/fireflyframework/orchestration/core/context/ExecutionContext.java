@@ -45,7 +45,7 @@ public class ExecutionContext {
     private final Map<String, Throwable> compensationErrors;
 
     // Workflow-specific
-    private boolean dryRun;
+    private volatile boolean dryRun;
 
     // TCC-specific
     private volatile TccPhase currentPhase;
@@ -157,8 +157,17 @@ public class ExecutionContext {
     public Map<String, Object> getTryResults() { return Collections.unmodifiableMap(tryResults); }
 
     // Topology
-    public void setTopologyLayers(List<List<String>> layers) { this.topologyLayers = layers; }
+    public void setTopologyLayers(List<List<String>> layers) {
+        this.topologyLayers = layers != null
+                ? layers.stream().map(List::copyOf).toList()
+                : List.of();
+    }
     public List<List<String>> getTopologyLayers() { return topologyLayers != null ? Collections.unmodifiableList(topologyLayers) : List.of(); }
-    public void setStepDependencies(Map<String, Set<String>> deps) { this.stepDependencies.putAll(deps); }
+    public void setStepDependencies(Map<String, Set<String>> deps) {
+        this.stepDependencies.clear();
+        if (deps != null) {
+            deps.forEach((k, v) -> this.stepDependencies.put(k, Set.copyOf(v)));
+        }
+    }
     public Map<String, Set<String>> getStepDependencies() { return Collections.unmodifiableMap(stepDependencies); }
 }

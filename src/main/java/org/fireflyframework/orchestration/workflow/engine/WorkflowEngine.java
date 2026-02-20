@@ -50,7 +50,7 @@ public class WorkflowEngine {
     }
 
     public Mono<ExecutionState> startWorkflow(String workflowId, Map<String, Object> input) {
-        return startWorkflow(workflowId, input, null, null, false);
+        return startWorkflow(workflowId, input, null, "api", false);
     }
 
     public Mono<ExecutionState> startWorkflow(String workflowId, Map<String, Object> input,
@@ -88,35 +88,77 @@ public class WorkflowEngine {
         });
     }
 
-    public Mono<Void> cancelWorkflow(String correlationId) {
-        return persistence.updateStatus(correlationId, ExecutionStatus.CANCELLED);
+    public Mono<ExecutionState> cancelWorkflow(String correlationId) {
+        return persistence.findById(correlationId)
+                .flatMap(opt -> {
+                    if (opt.isEmpty()) {
+                        return Mono.error(new ExecutionNotFoundException(correlationId));
+                    }
+                    ExecutionState state = opt.get();
+                    if (state.status().isTerminal()) {
+                        return Mono.error(new IllegalStateException(
+                                "Cannot cancel workflow in terminal status: " + state.status()));
+                    }
+                    ExecutionState cancelled = state.withStatus(ExecutionStatus.CANCELLED);
+                    return persistence.save(cancelled).thenReturn(cancelled);
+                });
     }
 
-    public Mono<Void> suspendWorkflow(String correlationId) {
+    public Mono<ExecutionState> suspendWorkflow(String correlationId, String reason) {
         return persistence.findById(correlationId)
                 .flatMap(opt -> {
                     if (opt.isEmpty()) {
                         return Mono.error(new ExecutionNotFoundException(correlationId));
                     }
                     if (!opt.get().status().canSuspend()) {
-                        return Mono.error(new IllegalStateException("Cannot suspend"));
+                        return Mono.error(new IllegalStateException(
+                                "Cannot suspend workflow in status: " + opt.get().status()));
                     }
-                    events.onWorkflowSuspended(opt.get().executionName(), correlationId, "User requested");
-                    return persistence.updateStatus(correlationId, ExecutionStatus.SUSPENDED);
+                    String effectiveReason = reason != null ? reason : "User requested";
+                    events.onWorkflowSuspended(opt.get().executionName(), correlationId, effectiveReason);
+                    ExecutionState suspended = opt.get().withStatus(ExecutionStatus.SUSPENDED);
+                    return persistence.save(suspended).thenReturn(suspended);
                 });
     }
 
-    public Mono<Void> resumeWorkflow(String correlationId) {
+    public Mono<ExecutionState> suspendWorkflow(String correlationId) {
+        return suspendWorkflow(correlationId, null);
+    }
+
+    public Mono<ExecutionState> resumeWorkflow(String correlationId) {
         return persistence.findById(correlationId)
                 .flatMap(opt -> {
                     if (opt.isEmpty()) {
                         return Mono.error(new ExecutionNotFoundException(correlationId));
                     }
-                    if (!opt.get().status().canResume()) {
-                        return Mono.error(new IllegalStateException("Cannot resume"));
+                    ExecutionState state = opt.get();
+                    if (!state.status().canResume()) {
+                        return Mono.error(new IllegalStateException(
+                                "Cannot resume workflow in status: " + state.status()));
                     }
-                    events.onWorkflowResumed(opt.get().executionName(), correlationId);
-                    return persistence.updateStatus(correlationId, ExecutionStatus.RUNNING);
+                    events.onWorkflowResumed(state.executionName(), correlationId);
+
+                    WorkflowDefinition def = registry.get(state.executionName())
+                            .orElseThrow(() -> new ExecutionNotFoundException(state.executionName()));
+
+                    ExecutionContext ctx = ExecutionContext.forWorkflow(correlationId, state.executionName());
+                    state.variables().forEach(ctx::putVariable);
+                    state.headers().forEach(ctx::putHeader);
+                    state.stepResults().forEach(ctx::putResult);
+                    state.stepStatuses().forEach(ctx::setStepStatus);
+
+                    ExecutionState runningState = state.withStatus(ExecutionStatus.RUNNING);
+                    return persistence.save(runningState)
+                            .then(executor.execute(def, ctx))
+                            .flatMap(resultCtx -> {
+                                ExecutionState completed = buildStateFromContext(
+                                        state.executionName(), resultCtx, ExecutionStatus.COMPLETED);
+                                return persistence.save(completed).thenReturn(completed);
+                            })
+                            .onErrorResume(error -> {
+                                ExecutionState failed = runningState.withFailure(error.getMessage());
+                                return persistence.save(failed).thenReturn(failed);
+                            });
                 });
     }
 
