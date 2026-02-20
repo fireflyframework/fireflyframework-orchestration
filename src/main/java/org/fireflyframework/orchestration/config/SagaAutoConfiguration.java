@@ -17,6 +17,7 @@
 package org.fireflyframework.orchestration.config;
 
 import org.fireflyframework.orchestration.core.dlq.DeadLetterService;
+import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.model.CompensationPolicy;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
@@ -53,8 +54,9 @@ public class SagaAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public SagaExecutionOrchestrator sagaExecutionOrchestrator(StepInvoker stepInvoker,
-                                                                OrchestrationEvents events) {
-        return new SagaExecutionOrchestrator(stepInvoker, events);
+                                                                OrchestrationEvents events,
+                                                                OrchestrationEventPublisher eventPublisher) {
+        return new SagaExecutionOrchestrator(stepInvoker, events, eventPublisher);
     }
 
     @Bean
@@ -74,10 +76,11 @@ public class SagaAutoConfiguration {
                                   SagaExecutionOrchestrator orchestrator,
                                   ExecutionPersistenceProvider persistence,
                                   ObjectProvider<DeadLetterService> dlqService,
-                                  SagaCompensator compensator) {
+                                  SagaCompensator compensator,
+                                  OrchestrationEventPublisher eventPublisher) {
         log.info("[orchestration] Saga engine initialized with compensation policy: {}",
                 properties.getSaga().getCompensationPolicy());
         return new SagaEngine(registry, events, orchestrator,
-                persistence, dlqService.getIfAvailable(), compensator);
+                persistence, dlqService.getIfAvailable(), compensator, eventPublisher);
     }
 }

@@ -17,6 +17,7 @@
 package org.fireflyframework.orchestration.config;
 
 import org.fireflyframework.orchestration.core.dlq.DeadLetterService;
+import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
@@ -51,8 +52,9 @@ public class TccAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public TccExecutionOrchestrator tccExecutionOrchestrator(StepInvoker stepInvoker,
-                                                              OrchestrationEvents events) {
-        return new TccExecutionOrchestrator(stepInvoker, events);
+                                                              OrchestrationEvents events,
+                                                              OrchestrationEventPublisher eventPublisher) {
+        return new TccExecutionOrchestrator(stepInvoker, events, eventPublisher);
     }
 
     @Bean
@@ -61,9 +63,10 @@ public class TccAutoConfiguration {
                                 OrchestrationEvents events,
                                 TccExecutionOrchestrator orchestrator,
                                 ExecutionPersistenceProvider persistence,
-                                ObjectProvider<DeadLetterService> dlqService) {
+                                ObjectProvider<DeadLetterService> dlqService,
+                                OrchestrationEventPublisher eventPublisher) {
         log.info("[orchestration] TCC engine initialized");
         return new TccEngine(registry, events, orchestrator,
-                persistence, dlqService.getIfAvailable());
+                persistence, dlqService.getIfAvailable(), eventPublisher);
     }
 }

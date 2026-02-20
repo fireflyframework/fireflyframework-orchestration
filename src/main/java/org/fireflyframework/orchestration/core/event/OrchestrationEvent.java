@@ -30,23 +30,38 @@ public record OrchestrationEvent(
         String stepId,
         ExecutionStatus status,
         Map<String, Object> payload,
-        Instant timestamp
+        Instant timestamp,
+        String topic,
+        String type,
+        String key
 ) {
     public static OrchestrationEvent executionStarted(String name, String correlationId, ExecutionPattern pattern) {
-        return new OrchestrationEvent("EXECUTION_STARTED", name, correlationId, pattern, null, ExecutionStatus.RUNNING, Map.of(), Instant.now());
+        return new OrchestrationEvent("EXECUTION_STARTED", name, correlationId, pattern, null, ExecutionStatus.RUNNING, Map.of(), Instant.now(), null, null, null);
     }
 
     public static OrchestrationEvent executionCompleted(String name, String correlationId, ExecutionPattern pattern, ExecutionStatus status) {
-        return new OrchestrationEvent("EXECUTION_COMPLETED", name, correlationId, pattern, null, status, Map.of(), Instant.now());
+        return new OrchestrationEvent("EXECUTION_COMPLETED", name, correlationId, pattern, null, status, Map.of(), Instant.now(), null, null, null);
     }
 
     public static OrchestrationEvent stepCompleted(String name, String correlationId, ExecutionPattern pattern, String stepId, Object result) {
         return new OrchestrationEvent("STEP_COMPLETED", name, correlationId, pattern, stepId, null,
-                result != null ? Map.of("result", result) : Map.of(), Instant.now());
+                result != null ? Map.of("result", result) : Map.of(), Instant.now(), null, null, null);
     }
 
     public static OrchestrationEvent stepFailed(String name, String correlationId, ExecutionPattern pattern, String stepId, Throwable error) {
         return new OrchestrationEvent("STEP_FAILED", name, correlationId, pattern, stepId, null,
-                Map.of("error", error.getMessage(), "errorType", error.getClass().getName()), Instant.now());
+                Map.of("error", error.getMessage(), "errorType", error.getClass().getName()), Instant.now(), null, null, null);
+    }
+
+    public OrchestrationEvent withTopic(String topic) {
+        return new OrchestrationEvent(eventType, executionName, correlationId, pattern, stepId, status, payload, timestamp, topic, type, key);
+    }
+
+    public OrchestrationEvent withType(String type) {
+        return new OrchestrationEvent(eventType, executionName, correlationId, pattern, stepId, status, payload, timestamp, topic, type, key);
+    }
+
+    public OrchestrationEvent withKey(String key) {
+        return new OrchestrationEvent(eventType, executionName, correlationId, pattern, stepId, status, payload, timestamp, topic, type, key);
     }
 }

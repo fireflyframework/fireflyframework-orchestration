@@ -63,15 +63,17 @@ class CrossPatternTest {
         sharedDlqStore = new InMemoryDeadLetterStore();
         sharedDlq = new DeadLetterService(sharedDlqStore, events);
 
+        var noOpPublisher = new org.fireflyframework.orchestration.core.event.NoOpEventPublisher();
+
         // Saga engine
-        var sagaOrchestrator = new SagaExecutionOrchestrator(stepInvoker, events);
+        var sagaOrchestrator = new SagaExecutionOrchestrator(stepInvoker, events, noOpPublisher);
         var compensator = new SagaCompensator(events, CompensationPolicy.STRICT_SEQUENTIAL, stepInvoker);
         sagaEngine = new SagaEngine(null, events,
-                sagaOrchestrator, sharedPersistence, sharedDlq, compensator);
+                sagaOrchestrator, sharedPersistence, sharedDlq, compensator, noOpPublisher);
 
         // TCC engine
-        var tccOrchestrator = new TccExecutionOrchestrator(stepInvoker, events);
-        tccEngine = new TccEngine(null, events, tccOrchestrator, sharedPersistence, sharedDlq);
+        var tccOrchestrator = new TccExecutionOrchestrator(stepInvoker, events, noOpPublisher);
+        tccEngine = new TccEngine(null, events, tccOrchestrator, sharedPersistence, sharedDlq, noOpPublisher);
     }
 
     @Test

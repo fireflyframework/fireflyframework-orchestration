@@ -18,7 +18,10 @@ package org.fireflyframework.orchestration.workflow.engine;
 
 import org.fireflyframework.orchestration.core.argument.ArgumentResolver;
 import org.fireflyframework.orchestration.core.context.ExecutionContext;
+import org.fireflyframework.orchestration.core.event.OrchestrationEvent;
+import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.exception.StepExecutionException;
+import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.StepStatus;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
@@ -32,16 +35,20 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
 @Slf4j
 public class WorkflowExecutor {
 
     private final StepInvoker stepInvoker;
     private final OrchestrationEvents events;
+    private final OrchestrationEventPublisher eventPublisher;
 
-    public WorkflowExecutor(ArgumentResolver argumentResolver, OrchestrationEvents events) {
+    public WorkflowExecutor(ArgumentResolver argumentResolver, OrchestrationEvents events,
+                             OrchestrationEventPublisher eventPublisher) {
         this.stepInvoker = new StepInvoker(argumentResolver);
         this.events = events;
+        this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
     }
 
     public Mono<ExecutionContext> execute(WorkflowDefinition definition, ExecutionContext ctx) {
@@ -104,13 +111,15 @@ public class WorkflowExecutor {
 
                     return stepInvoker.attemptCall(stepDef.bean(), stepDef.method(), input, ctx,
                                     timeout, retries, backoff, jitter, jitterFactor, stepId, false)
-                            .doOnNext(result -> {
+                            .flatMap(result -> {
                                 ctx.putResult(stepId, result);
                                 ctx.setStepStatus(stepId, StepStatus.DONE);
                                 long latency = Duration.between(ctx.getStepStartedAt(stepId), Instant.now()).toMillis();
                                 ctx.setStepLatency(stepId, latency);
                                 events.onStepSuccess(def.workflowId(), ctx.getCorrelationId(), stepId,
                                         ctx.getAttempts(stepId), latency);
+                                return publishWorkflowStepEvent(def, stepDef, stepId, result, ctx)
+                                        .thenReturn(result);
                             })
                             .switchIfEmpty(Mono.defer(() -> {
                                 ctx.setStepStatus(stepId, StepStatus.DONE);
@@ -118,7 +127,8 @@ public class WorkflowExecutor {
                                 ctx.setStepLatency(stepId, latency);
                                 events.onStepSuccess(def.workflowId(), ctx.getCorrelationId(), stepId,
                                         ctx.getAttempts(stepId), latency);
-                                return Mono.empty();
+                                return publishWorkflowStepEvent(def, stepDef, stepId, null, ctx)
+                                        .then(Mono.empty());
                             }))
                             .onErrorResume(error -> {
                                 ctx.setStepStatus(stepId, StepStatus.FAILED);
@@ -130,5 +140,17 @@ public class WorkflowExecutor {
                 })
                 .orElseGet(() -> Mono.error(new StepExecutionException(
                         stepId, "Step not found in workflow definition")));
+    }
+
+    private Mono<Void> publishWorkflowStepEvent(WorkflowDefinition def, WorkflowStepDefinition stepDef,
+                                                  String stepId, Object result, ExecutionContext ctx) {
+        String outputEventType = stepDef.outputEventType();
+        if (outputEventType == null || outputEventType.isBlank()) {
+            return Mono.empty();
+        }
+        OrchestrationEvent event = OrchestrationEvent.stepCompleted(
+                def.workflowId(), ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, stepId, result)
+                .withType(outputEventType);
+        return eventPublisher.publish(event);
     }
 }

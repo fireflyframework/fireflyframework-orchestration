@@ -17,6 +17,8 @@
 package org.fireflyframework.orchestration.workflow.engine;
 
 import org.fireflyframework.orchestration.core.context.ExecutionContext;
+import org.fireflyframework.orchestration.core.event.OrchestrationEvent;
+import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.exception.ExecutionNotFoundException;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
@@ -40,13 +42,16 @@ public class WorkflowEngine {
     private final WorkflowExecutor executor;
     private final ExecutionPersistenceProvider persistence;
     private final OrchestrationEvents events;
+    private final OrchestrationEventPublisher eventPublisher;
 
     public WorkflowEngine(WorkflowRegistry registry, WorkflowExecutor executor,
-                           ExecutionPersistenceProvider persistence, OrchestrationEvents events) {
+                           ExecutionPersistenceProvider persistence, OrchestrationEvents events,
+                           OrchestrationEventPublisher eventPublisher) {
         this.registry = registry;
         this.executor = executor;
         this.persistence = persistence;
         this.events = events;
+        this.eventPublisher = java.util.Objects.requireNonNull(eventPublisher, "eventPublisher");
     }
 
     public Mono<ExecutionState> startWorkflow(String workflowId, Map<String, Object> input) {
@@ -73,14 +78,22 @@ public class WorkflowEngine {
             events.onStart(workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW);
 
             return persistence.save(initialState)
+                    .then(eventPublisher.publish(OrchestrationEvent.executionStarted(
+                            workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW)))
                     .then(executor.execute(def, ctx))
                     .flatMap(resultCtx -> {
                         ExecutionState completedState = buildStateFromContext(workflowId, resultCtx, ExecutionStatus.COMPLETED);
-                        return persistence.save(completedState).thenReturn(completedState);
+                        return persistence.save(completedState)
+                                .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                        workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, ExecutionStatus.COMPLETED)))
+                                .thenReturn(completedState);
                     })
                     .onErrorResume(error -> {
                         ExecutionState failedState = initialState.withFailure(error.getMessage());
-                        return persistence.save(failedState).thenReturn(failedState);
+                        return persistence.save(failedState)
+                                .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                        workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, ExecutionStatus.FAILED)))
+                                .thenReturn(failedState);
                     })
                     .doOnSuccess(state -> events.onCompleted(workflowId, ctx.getCorrelationId(),
                             ExecutionPattern.WORKFLOW, state.status() == ExecutionStatus.COMPLETED,

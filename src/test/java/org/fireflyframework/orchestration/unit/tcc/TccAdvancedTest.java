@@ -53,14 +53,15 @@ class TccAdvancedTest {
     void setUp() {
         events = new OrchestrationEvents() {};
         var stepInvoker = new StepInvoker(new ArgumentResolver());
-        var orchestrator = new TccExecutionOrchestrator(stepInvoker, events);
-        engine = new TccEngine(null, events, orchestrator, null, null);
+        var noOpPublisher = new org.fireflyframework.orchestration.core.event.NoOpEventPublisher();
+        var orchestrator = new TccExecutionOrchestrator(stepInvoker, events, noOpPublisher);
+        engine = new TccEngine(null, events, orchestrator, null, null, noOpPublisher);
 
         // Engine with DLQ and persistence
         var persistence = new InMemoryPersistenceProvider();
         dlqStore = new InMemoryDeadLetterStore();
         var dlqService = new DeadLetterService(dlqStore, events);
-        engineWithDlq = new TccEngine(null, events, orchestrator, persistence, dlqService);
+        engineWithDlq = new TccEngine(null, events, orchestrator, persistence, dlqService, noOpPublisher);
     }
 
     @Test

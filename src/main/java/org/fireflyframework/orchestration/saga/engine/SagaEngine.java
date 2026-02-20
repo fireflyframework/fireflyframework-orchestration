@@ -19,6 +19,8 @@ package org.fireflyframework.orchestration.saga.engine;
 import org.fireflyframework.orchestration.core.context.ExecutionContext;
 import org.fireflyframework.orchestration.core.dlq.DeadLetterEntry;
 import org.fireflyframework.orchestration.core.dlq.DeadLetterService;
+import org.fireflyframework.orchestration.core.event.OrchestrationEvent;
+import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.StepStatus;
@@ -49,17 +51,19 @@ public class SagaEngine {
     private final SagaExecutionOrchestrator orchestrator;
     private final ExecutionPersistenceProvider persistence;
     private final DeadLetterService dlqService;
+    private final OrchestrationEventPublisher eventPublisher;
 
     public SagaEngine(SagaRegistry registry, OrchestrationEvents events,
                        SagaExecutionOrchestrator orchestrator,
                        ExecutionPersistenceProvider persistence, DeadLetterService dlqService,
-                       SagaCompensator compensator) {
+                       SagaCompensator compensator, OrchestrationEventPublisher eventPublisher) {
         this.registry = registry;
         this.events = events;
         this.orchestrator = orchestrator;
         this.persistence = persistence;
         this.dlqService = dlqService;
         this.compensator = compensator;
+        this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
     }
 
     public Mono<SagaResult> execute(String sagaName, StepInputs inputs) {
@@ -96,6 +100,8 @@ public class SagaEngine {
         Mono<Void> persistSetup = persistInitialState(workSaga, finalCtx);
 
         return persistSetup
+                .then(eventPublisher.publish(OrchestrationEvent.executionStarted(
+                        workSaga.name, finalCtx.getCorrelationId(), ExecutionPattern.SAGA)))
                 .then(orchestrator.orchestrate(workSaga, inputs, finalCtx, overrideInputs))
                 .flatMap(result -> handleResult(result, workSaga, inputs, overrideInputs));
     }
@@ -111,6 +117,8 @@ public class SagaEngine {
 
         if (success) {
             return persistFinalState(ctx, ExecutionStatus.COMPLETED)
+                    .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                            sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, ExecutionStatus.COMPLETED)))
                     .then(Mono.just(SagaResult.from(sagaName, ctx, Map.of(), result.getStepErrors(), workSaga.steps.keySet())));
         }
 
@@ -119,6 +127,8 @@ public class SagaEngine {
         return compensator.compensate(sagaName, workSaga, result.getCompletionOrder(), materializedInputs, ctx)
                 .then(persistFinalState(ctx, ExecutionStatus.FAILED))
                 .then(saveToDlq(sagaName, ctx, result))
+                .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                        sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, ExecutionStatus.FAILED)))
                 .then(Mono.defer(() -> {
                     Map<String, Boolean> compensated = extractCompensationFlags(result.getCompletionOrder(), ctx);
                     return Mono.just(SagaResult.from(sagaName, ctx, compensated, result.getStepErrors(), workSaga.steps.keySet()));

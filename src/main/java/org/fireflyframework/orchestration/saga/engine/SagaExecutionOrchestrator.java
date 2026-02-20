@@ -18,6 +18,8 @@ package org.fireflyframework.orchestration.saga.engine;
 
 import org.fireflyframework.orchestration.core.argument.SetVariable;
 import org.fireflyframework.orchestration.core.context.ExecutionContext;
+import org.fireflyframework.orchestration.core.event.OrchestrationEvent;
+import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.StepStatus;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
@@ -25,6 +27,7 @@ import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.core.topology.TopologyBuilder;
 import org.fireflyframework.orchestration.saga.registry.SagaDefinition;
 import org.fireflyframework.orchestration.saga.registry.SagaStepDefinition;
+import org.fireflyframework.orchestration.saga.registry.StepEventConfig;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -45,10 +48,13 @@ public class SagaExecutionOrchestrator {
 
     private final StepInvoker stepInvoker;
     private final OrchestrationEvents events;
+    private final OrchestrationEventPublisher eventPublisher;
 
-    public SagaExecutionOrchestrator(StepInvoker stepInvoker, OrchestrationEvents events) {
+    public SagaExecutionOrchestrator(StepInvoker stepInvoker, OrchestrationEvents events,
+                                      OrchestrationEventPublisher eventPublisher) {
         this.stepInvoker = Objects.requireNonNull(stepInvoker, "stepInvoker");
         this.events = Objects.requireNonNull(events, "events");
+        this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
     }
 
     public Mono<ExecutionResult> orchestrate(SagaDefinition saga, StepInputs inputs,
@@ -124,10 +130,13 @@ public class SagaExecutionOrchestrator {
         Mono<Object> execution = createStepExecution(saga, stepDef, stepId, input, ctx);
 
         return execution
-                .doOnNext(result -> handleStepSuccess(saga, stepDef, stepId, result, ctx, start))
+                .flatMap(result -> {
+                    handleStepSuccess(saga, stepDef, stepId, result, ctx, start);
+                    return publishStepEvent(saga, stepDef, stepId, result, ctx).thenReturn(result);
+                })
                 .switchIfEmpty(Mono.defer(() -> {
                     handleStepSuccess(saga, stepDef, stepId, null, ctx, start);
-                    return Mono.empty();
+                    return publishStepEvent(saga, stepDef, stepId, null, ctx).then(Mono.empty());
                 }))
                 .then()
                 .doOnError(err -> handleStepError(saga, stepId, err, ctx, start));
@@ -170,6 +179,20 @@ public class SagaExecutionOrchestrator {
         ctx.setStepLatency(stepId, latency);
         ctx.setStepStatus(stepId, StepStatus.FAILED);
         events.onStepFailed(saga.name, ctx.getCorrelationId(), stepId, err, ctx.getAttempts(stepId));
+    }
+
+    private Mono<Void> publishStepEvent(SagaDefinition saga, SagaStepDefinition stepDef,
+                                         String stepId, Object result, ExecutionContext ctx) {
+        StepEventConfig sec = stepDef.stepEvent;
+        if (sec == null) {
+            return Mono.empty();
+        }
+        OrchestrationEvent event = OrchestrationEvent.stepCompleted(
+                saga.name, ctx.getCorrelationId(), ExecutionPattern.SAGA, stepId, result)
+                .withTopic(sec.topic())
+                .withType(sec.type())
+                .withKey(sec.key());
+        return eventPublisher.publish(event);
     }
 
     private Object resolveStepInput(ExecutionState state, String stepId) {

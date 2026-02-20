@@ -18,11 +18,14 @@ package org.fireflyframework.orchestration.tcc.engine;
 
 import org.fireflyframework.orchestration.core.context.ExecutionContext;
 import org.fireflyframework.orchestration.core.context.TccPhase;
+import org.fireflyframework.orchestration.core.event.OrchestrationEvent;
+import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.StepStatus;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.tcc.registry.TccDefinition;
+import org.fireflyframework.orchestration.tcc.registry.TccEventConfig;
 import org.fireflyframework.orchestration.tcc.registry.TccParticipantDefinition;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
@@ -46,10 +49,13 @@ public class TccExecutionOrchestrator {
 
     private final StepInvoker stepInvoker;
     private final OrchestrationEvents events;
+    private final OrchestrationEventPublisher eventPublisher;
 
-    public TccExecutionOrchestrator(StepInvoker stepInvoker, OrchestrationEvents events) {
+    public TccExecutionOrchestrator(StepInvoker stepInvoker, OrchestrationEvents events,
+                                     OrchestrationEventPublisher eventPublisher) {
         this.stepInvoker = Objects.requireNonNull(stepInvoker, "stepInvoker");
         this.events = Objects.requireNonNull(events, "events");
+        this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
     }
 
     public Mono<OrchestratorResult> orchestrate(TccDefinition tccDef, TccInputs inputs, ExecutionContext ctx) {
@@ -193,7 +199,7 @@ public class TccExecutionOrchestrator {
 
         return stepInvoker.attemptCall(pd.bean, pd.confirmMethod, tryResult, state.ctx,
                         timeoutMs, retry, backoffMs, false, 0.5, participantId + ":confirm", false)
-                .doOnNext(result -> {
+                .flatMap(result -> {
                     long latency = System.currentTimeMillis() - start;
                     TccResult.ParticipantOutcome prev = state.participantOutcomes.get(participantId);
                     state.participantOutcomes.put(participantId, new TccResult.ParticipantOutcome(
@@ -202,8 +208,9 @@ public class TccExecutionOrchestrator {
                             state.ctx.getAttempts(participantId), latency));
                     events.onParticipantSuccess(state.tccDef.name, state.ctx.getCorrelationId(),
                             participantId, TccPhase.CONFIRM);
+                    return publishTccEvent(state.tccDef, pd, participantId, result, state.ctx)
+                            .thenReturn(true);
                 })
-                .thenReturn(true)
                 .onErrorResume(err -> {
                     long latency = System.currentTimeMillis() - start;
                     state.failedParticipantId = participantId;
@@ -289,6 +296,20 @@ public class TccExecutionOrchestrator {
                     // Cancel failures are best-effort — don't stop canceling other participants
                     return Mono.just(false);
                 });
+    }
+
+    private Mono<Void> publishTccEvent(TccDefinition tccDef, TccParticipantDefinition pd,
+                                        String participantId, Object result, ExecutionContext ctx) {
+        TccEventConfig tec = pd.tccEvent;
+        if (tec == null) {
+            return Mono.empty();
+        }
+        OrchestrationEvent event = OrchestrationEvent.stepCompleted(
+                tccDef.name, ctx.getCorrelationId(), ExecutionPattern.TCC, participantId, result)
+                .withTopic(tec.topic())
+                .withType(tec.eventType())
+                .withKey(tec.key());
+        return eventPublisher.publish(event);
     }
 
     // --- Internal State ---

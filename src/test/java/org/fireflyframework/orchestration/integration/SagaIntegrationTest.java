@@ -50,12 +50,13 @@ class SagaIntegrationTest {
     void setUp() {
         events = new OrchestrationEvents() {};
         var stepInvoker = new StepInvoker(new ArgumentResolver());
-        var orchestrator = new SagaExecutionOrchestrator(stepInvoker, events);
+        var noOpPublisher = new org.fireflyframework.orchestration.core.event.NoOpEventPublisher();
+        var orchestrator = new SagaExecutionOrchestrator(stepInvoker, events, noOpPublisher);
         var persistence = new InMemoryPersistenceProvider();
         var compensator = new SagaCompensator(events, CompensationPolicy.STRICT_SEQUENTIAL, stepInvoker);
         var dlqStore = new InMemoryDeadLetterStore();
         dlqService = new DeadLetterService(dlqStore, events);
-        engine = new SagaEngine(null, events, orchestrator, persistence, dlqService, compensator);
+        engine = new SagaEngine(null, events, orchestrator, persistence, dlqService, compensator, noOpPublisher);
     }
 
     @Test

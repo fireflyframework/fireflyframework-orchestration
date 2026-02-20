@@ -19,6 +19,8 @@ package org.fireflyframework.orchestration.tcc.engine;
 import org.fireflyframework.orchestration.core.context.ExecutionContext;
 import org.fireflyframework.orchestration.core.dlq.DeadLetterEntry;
 import org.fireflyframework.orchestration.core.dlq.DeadLetterService;
+import org.fireflyframework.orchestration.core.event.OrchestrationEvent;
+import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
@@ -45,15 +47,18 @@ public class TccEngine {
     private final TccExecutionOrchestrator orchestrator;
     private final ExecutionPersistenceProvider persistence;
     private final DeadLetterService dlqService;
+    private final OrchestrationEventPublisher eventPublisher;
 
     public TccEngine(TccRegistry registry, OrchestrationEvents events,
                      TccExecutionOrchestrator orchestrator,
-                     ExecutionPersistenceProvider persistence, DeadLetterService dlqService) {
+                     ExecutionPersistenceProvider persistence, DeadLetterService dlqService,
+                     OrchestrationEventPublisher eventPublisher) {
         this.registry = registry;
         this.events = events;
         this.orchestrator = orchestrator;
         this.persistence = persistence;
         this.dlqService = dlqService;
+        this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
     }
 
     public Mono<TccResult> execute(String tccName, TccInputs inputs) {
@@ -82,11 +87,15 @@ public class TccEngine {
         final ExecutionContext finalCtx = ctx != null ? ctx : ExecutionContext.forTcc(null, tcc.name);
 
         return persistInitialState(tcc, finalCtx)
+                .then(eventPublisher.publish(OrchestrationEvent.executionStarted(
+                        tcc.name, finalCtx.getCorrelationId(), ExecutionPattern.TCC)))
                 .then(orchestrator.orchestrate(tcc, inputs, finalCtx))
                 .flatMap(result -> handleResult(result, tcc))
                 .onErrorResume(err -> {
                     log.error("[tcc] Unexpected error executing TCC '{}': {}", tcc.name, err.getMessage(), err);
                     return persistFinalState(finalCtx, ExecutionStatus.FAILED)
+                            .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                    tcc.name, finalCtx.getCorrelationId(), ExecutionPattern.TCC, ExecutionStatus.FAILED)))
                             .then(Mono.just(TccResult.failed(tcc.name, finalCtx,
                                     null, null, err, Map.of())));
                 });
@@ -122,8 +131,10 @@ public class TccEngine {
         Mono<Void> persist = persistFinalState(ctx, finalStatus);
         // Only DLQ truly failed transactions — CANCELED is controlled rollback, not a failure
         Mono<Void> dlq = (finalStatus == ExecutionStatus.FAILED) ? saveToDlq(tcc.name, ctx, result, finalStatus) : Mono.empty();
+        Mono<Void> publishCompleted = eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                tcc.name, ctx.getCorrelationId(), ExecutionPattern.TCC, finalStatus));
 
-        return persist.then(dlq).thenReturn(tccResult);
+        return persist.then(dlq).then(publishCompleted).thenReturn(tccResult);
     }
 
     private Mono<Void> saveToDlq(String tccName, ExecutionContext ctx,

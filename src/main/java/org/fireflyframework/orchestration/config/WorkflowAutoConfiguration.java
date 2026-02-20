@@ -17,6 +17,7 @@
 package org.fireflyframework.orchestration.config;
 
 import org.fireflyframework.orchestration.core.argument.ArgumentResolver;
+import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.workflow.child.ChildWorkflowService;
@@ -59,8 +60,9 @@ public class WorkflowAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public WorkflowExecutor workflowExecutor(ArgumentResolver argumentResolver,
-                                              OrchestrationEvents events) {
-        return new WorkflowExecutor(argumentResolver, events);
+                                              OrchestrationEvents events,
+                                              OrchestrationEventPublisher eventPublisher) {
+        return new WorkflowExecutor(argumentResolver, events, eventPublisher);
     }
 
     @Bean
@@ -68,9 +70,10 @@ public class WorkflowAutoConfiguration {
     public WorkflowEngine workflowEngine(WorkflowRegistry registry,
                                           WorkflowExecutor executor,
                                           ExecutionPersistenceProvider persistence,
-                                          OrchestrationEvents events) {
+                                          OrchestrationEvents events,
+                                          OrchestrationEventPublisher eventPublisher) {
         log.info("[orchestration] Workflow engine initialized");
-        return new WorkflowEngine(registry, executor, persistence, events);
+        return new WorkflowEngine(registry, executor, persistence, events, eventPublisher);
     }
 
     @Bean

@@ -66,9 +66,10 @@ class WorkflowSuspendResumeTest {
     void setUp() {
         registry = new WorkflowRegistry();
         var events = new OrchestrationEvents() {};
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events);
+        var noOpPublisher = new org.fireflyframework.orchestration.core.event.NoOpEventPublisher();
+        var executor = new WorkflowExecutor(new ArgumentResolver(), events, noOpPublisher);
         persistence = new InMemoryPersistenceProvider();
-        engine = new WorkflowEngine(registry, executor, persistence, events);
+        engine = new WorkflowEngine(registry, executor, persistence, events, noOpPublisher);
     }
 
     private WorkflowDefinition createSimpleWorkflow() throws Exception {

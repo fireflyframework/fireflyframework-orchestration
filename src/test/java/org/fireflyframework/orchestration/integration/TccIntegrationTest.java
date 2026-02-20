@@ -47,11 +47,12 @@ class TccIntegrationTest {
     void setUp() {
         var events = new OrchestrationEvents() {};
         var stepInvoker = new StepInvoker(new ArgumentResolver());
-        var orchestrator = new TccExecutionOrchestrator(stepInvoker, events);
+        var noOpPublisher = new org.fireflyframework.orchestration.core.event.NoOpEventPublisher();
+        var orchestrator = new TccExecutionOrchestrator(stepInvoker, events, noOpPublisher);
         var persistence = new InMemoryPersistenceProvider();
         var dlqStore = new InMemoryDeadLetterStore();
         dlqService = new DeadLetterService(dlqStore, events);
-        engine = new TccEngine(null, events, orchestrator, persistence, dlqService);
+        engine = new TccEngine(null, events, orchestrator, persistence, dlqService, noOpPublisher);
     }
 
     @Test
