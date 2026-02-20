@@ -696,9 +696,12 @@ outcome.compensationError();    // Throwable — compensation error (null if suc
 ```
 Participant A: Try ✓  Participant B: Try ✓  → Confirm A, Confirm B
 Participant A: Try ✓  Participant B: Try ✗  → Cancel A (B was never reserved)
+Participant A: Try ✓  Confirm A ✗           → Cancel A (confirm failure triggers cancel)
 ```
 
 **Key difference from Saga:** In a Saga, the forward action is committed immediately and must be compensated on failure. In TCC, the Try phase only *reserves* resources — nothing is committed until the Confirm phase.
+
+**Confirm failure behavior:** If the Confirm phase fails for any participant, the framework automatically chains into the Cancel phase to restore consistency. This prevents partial commits that leave the system in an inconsistent state. The result status will be `CANCELED` (if cancel succeeds) or `FAILED` (if cancel also fails, which routes to the DLQ).
 
 **Key concepts:**
 - **Participant:** A service that implements Try/Confirm/Cancel for a resource

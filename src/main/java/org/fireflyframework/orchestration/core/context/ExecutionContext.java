@@ -162,7 +162,10 @@ public class ExecutionContext {
                 ? layers.stream().map(List::copyOf).toList()
                 : List.of();
     }
-    public List<List<String>> getTopologyLayers() { return topologyLayers != null ? Collections.unmodifiableList(topologyLayers) : List.of(); }
+    public List<List<String>> getTopologyLayers() {
+        List<List<String>> snapshot = topologyLayers;
+        return snapshot != null ? Collections.unmodifiableList(snapshot) : List.of();
+    }
     public void setStepDependencies(Map<String, Set<String>> deps) {
         this.stepDependencies.clear();
         if (deps != null) {

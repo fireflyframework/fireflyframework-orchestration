@@ -94,10 +94,11 @@ public final class TccResult {
     }
 
     public static TccResult canceled(String tccName, ExecutionContext ctx,
-                                      String failedParticipantId, Throwable error,
+                                      String failedParticipantId, TccPhase failedPhase,
+                                      Throwable error,
                                       Map<String, ParticipantOutcome> participants) {
         return new TccResult(tccName, ctx.getCorrelationId(), Status.CANCELED,
-                ctx.getStartedAt(), Instant.now(), error, failedParticipantId, TccPhase.TRY,
+                ctx.getStartedAt(), Instant.now(), error, failedParticipantId, failedPhase,
                 Collections.unmodifiableMap(new LinkedHashMap<>(participants)));
     }
 

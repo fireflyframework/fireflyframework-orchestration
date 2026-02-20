@@ -109,36 +109,44 @@ class TccAdvancedTest {
     }
 
     @Test
-    void confirmPhaseFailure_resultIsFailed_withConfirmPhase() {
+    void confirmPhaseFailure_triggersCancelPhase() {
+        AtomicBoolean cancelCalled = new AtomicBoolean(false);
+
         TccDefinition tcc = TccBuilder.tcc("ConfirmFailure")
                 .participant("p1")
                     .order(1)
                     .tryHandler((input, ctx) -> Mono.just("tried"))
                     .confirmHandler((input, ctx) -> Mono.error(new RuntimeException("confirm exploded")))
-                    .cancelHandler((input, ctx) -> Mono.empty())
+                    .cancelHandler((input, ctx) -> {
+                        cancelCalled.set(true);
+                        return Mono.empty();
+                    })
                     .add()
                 .build();
 
         StepVerifier.create(engine.execute(tcc, TccInputs.empty()))
                 .assertNext(result -> {
-                    assertThat(result.isFailed()).isTrue();
+                    // TCC protocol: confirm failure triggers cancel to restore consistency
+                    assertThat(result.isCanceled()).isTrue();
                     assertThat(result.isConfirmed()).isFalse();
-                    assertThat(result.isCanceled()).isFalse();
+                    assertThat(result.isFailed()).isFalse();
                     assertThat(result.failedPhase()).hasValue(TccPhase.CONFIRM);
                     assertThat(result.error()).isPresent();
                     assertThat(result.error().get().getMessage()).contains("confirm exploded");
+                    assertThat(cancelCalled.get()).isTrue();
                 })
                 .verifyComplete();
     }
 
     @Test
-    void confirmPhaseFailure_routedToDlq() {
-        TccDefinition tcc = TccBuilder.tcc("ConfirmDlq")
+    void confirmAndCancelBothFail_routedToDlq() {
+        // When both confirm AND cancel fail, the transaction is truly FAILED and routes to DLQ
+        TccDefinition tcc = TccBuilder.tcc("ConfirmCancelDlq")
                 .participant("p1")
                     .order(1)
                     .tryHandler((input, ctx) -> Mono.just("tried"))
                     .confirmHandler((input, ctx) -> Mono.error(new RuntimeException("confirm DLQ")))
-                    .cancelHandler((input, ctx) -> Mono.empty())
+                    .cancelHandler((input, ctx) -> Mono.error(new RuntimeException("cancel also failed")))
                     .add()
                 .build();
 

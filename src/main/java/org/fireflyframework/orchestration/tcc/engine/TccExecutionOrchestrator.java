@@ -28,7 +28,6 @@ import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
-import java.lang.reflect.Method;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -165,18 +164,19 @@ public class TccExecutionOrchestrator {
                 .filter(pd -> state.triedParticipants.contains(pd.id))
                 .concatMap(pd -> executeConfirm(state, pd))
                 .collectList()
-                .map(results -> {
+                .flatMap(results -> {
                     boolean allConfirmed = results.stream().allMatch(Boolean::booleanValue);
                     long phaseDuration = System.currentTimeMillis() - phaseStart;
 
                     if (allConfirmed) {
                         events.onPhaseCompleted(state.tccDef.name, state.ctx.getCorrelationId(),
                                 TccPhase.CONFIRM, phaseDuration);
-                        return OrchestratorResult.confirmed(state);
+                        return Mono.just(OrchestratorResult.confirmed(state));
                     } else {
                         events.onPhaseFailed(state.tccDef.name, state.ctx.getCorrelationId(),
                                 TccPhase.CONFIRM, state.failureError);
-                        return OrchestratorResult.failed(state);
+                        // TCC protocol: confirm failure must trigger cancel to restore consistency
+                        return executeCancelPhase(state);
                     }
                 });
     }

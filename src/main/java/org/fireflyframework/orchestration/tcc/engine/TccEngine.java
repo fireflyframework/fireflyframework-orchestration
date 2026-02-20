@@ -110,7 +110,7 @@ public class TccEngine {
             case CANCELED -> {
                 finalStatus = ExecutionStatus.CANCELED;
                 tccResult = TccResult.canceled(tcc.name, ctx, result.getFailedParticipantId(),
-                        result.getFailureError(), result.getParticipantOutcomes());
+                        result.getFailedPhase(), result.getFailureError(), result.getParticipantOutcomes());
             }
             default -> {
                 finalStatus = ExecutionStatus.FAILED;
