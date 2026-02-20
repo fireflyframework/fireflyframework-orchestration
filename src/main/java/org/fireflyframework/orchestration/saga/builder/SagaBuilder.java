@@ -46,16 +46,25 @@ public class SagaBuilder {
 
     private final SagaDefinition saga;
 
-    private SagaBuilder(String name) {
-        this.saga = new SagaDefinition(name, null, null, 0);
+    private SagaBuilder(String name, int layerConcurrency) {
+        this.saga = new SagaDefinition(name, null, null, layerConcurrency);
     }
 
     public static SagaBuilder saga(String name) {
-        return new SagaBuilder(name);
+        return new SagaBuilder(name, 0);
     }
 
     public static SagaBuilder named(String name) {
         return saga(name);
+    }
+
+    /**
+     * Creates a saga builder with a specific layer concurrency limit.
+     * When {@code layerConcurrency > 0}, at most that many steps within a single
+     * layer will execute concurrently. Zero or negative means unbounded.
+     */
+    public static SagaBuilder saga(String name, int layerConcurrency) {
+        return new SagaBuilder(name, layerConcurrency);
     }
 
     public Step step(String id) {

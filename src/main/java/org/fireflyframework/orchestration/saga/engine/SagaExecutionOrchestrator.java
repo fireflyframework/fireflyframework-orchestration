@@ -85,10 +85,25 @@ public class SagaExecutionOrchestrator {
 
     private Mono<ExecutionState> executeLayer(ExecutionState state, List<String> layer) {
         if (layer.isEmpty()) return Mono.just(state);
-        List<Mono<Void>> stepExecutions = layer.stream()
-                .map(stepId -> executeStepWithErrorHandling(state, stepId))
-                .toList();
-        return Mono.when(stepExecutions).then(Mono.just(state))
+
+        int concurrency = state.saga.layerConcurrency;
+
+        if (concurrency <= 0) {
+            // Unbounded — existing behavior
+            List<Mono<Void>> stepExecutions = layer.stream()
+                    .map(stepId -> executeStepWithErrorHandling(state, stepId))
+                    .toList();
+            return Mono.when(stepExecutions).then(Mono.just(state))
+                    .onErrorResume(err -> {
+                        state.failed.set(true);
+                        return Mono.just(state);
+                    });
+        }
+
+        // Bounded — use Flux.flatMap with concurrency limit
+        return Flux.fromIterable(layer)
+                .flatMap(stepId -> executeStepWithErrorHandling(state, stepId), concurrency)
+                .then(Mono.just(state))
                 .onErrorResume(err -> {
                     state.failed.set(true);
                     return Mono.just(state);
