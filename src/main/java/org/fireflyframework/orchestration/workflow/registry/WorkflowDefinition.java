@@ -34,11 +34,35 @@ public record WorkflowDefinition(
         long timeoutMs,
         RetryPolicy retryPolicy,
         Object workflowBean,
-        Method onStepCompleteMethod,
-        Method onWorkflowCompleteMethod,
-        Method onWorkflowErrorMethod
+        List<Method> onStepCompleteMethods,
+        List<Method> onWorkflowCompleteMethods,
+        List<Method> onWorkflowErrorMethods
 ) {
     public Optional<WorkflowStepDefinition> findStep(String stepId) {
         return steps.stream().filter(s -> s.stepId().equals(stepId)).findFirst();
+    }
+
+    /**
+     * Backward-compatible convenience accessor returning the first {@code @OnStepComplete} method, or {@code null}.
+     */
+    public Method onStepCompleteMethod() {
+        return onStepCompleteMethods != null && !onStepCompleteMethods.isEmpty()
+                ? onStepCompleteMethods.get(0) : null;
+    }
+
+    /**
+     * Backward-compatible convenience accessor returning the first {@code @OnWorkflowComplete} method, or {@code null}.
+     */
+    public Method onWorkflowCompleteMethod() {
+        return onWorkflowCompleteMethods != null && !onWorkflowCompleteMethods.isEmpty()
+                ? onWorkflowCompleteMethods.get(0) : null;
+    }
+
+    /**
+     * Backward-compatible convenience accessor returning the first {@code @OnWorkflowError} method, or {@code null}.
+     */
+    public Method onWorkflowErrorMethod() {
+        return onWorkflowErrorMethods != null && !onWorkflowErrorMethods.isEmpty()
+                ? onWorkflowErrorMethods.get(0) : null;
     }
 }

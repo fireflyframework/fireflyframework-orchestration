@@ -25,12 +25,16 @@ import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.persistence.ExecutionState;
+import org.fireflyframework.orchestration.workflow.annotation.OnWorkflowComplete;
+import org.fireflyframework.orchestration.workflow.annotation.OnWorkflowError;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowDefinition;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowRegistry;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
+import java.lang.reflect.Method;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
@@ -86,15 +90,23 @@ public class WorkflowEngine {
                         return persistence.save(completedState)
                                 .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                                         workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, ExecutionStatus.COMPLETED)))
+                                .then(invokeWorkflowCompleteCallbacks(def, ctx))
                                 .thenReturn(completedState);
                     })
-                    .onErrorResume(error -> {
-                        ExecutionState failedState = initialState.withFailure(error.getMessage());
-                        return persistence.save(failedState)
-                                .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
-                                        workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, ExecutionStatus.FAILED)))
-                                .thenReturn(failedState);
-                    })
+                    .onErrorResume(error -> invokeWorkflowErrorCallbacks(def, ctx, error)
+                            .then(Mono.defer(() -> {
+                                boolean suppress = def.onWorkflowErrorMethods() != null
+                                        && def.onWorkflowErrorMethods().stream()
+                                        .anyMatch(m -> m.getAnnotation(OnWorkflowError.class).suppressError());
+                                ExecutionStatus status = suppress ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
+                                ExecutionState finalState = suppress
+                                        ? buildStateFromContext(workflowId, ctx, ExecutionStatus.COMPLETED)
+                                        : initialState.withFailure(error.getMessage());
+                                return persistence.save(finalState)
+                                        .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                                workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, status)))
+                                        .thenReturn(finalState);
+                            })))
                     .doOnSuccess(state -> events.onCompleted(workflowId, ctx.getCorrelationId(),
                             ExecutionPattern.WORKFLOW, state.status() == ExecutionStatus.COMPLETED,
                             Duration.between(state.startedAt(), Instant.now()).toMillis()));
@@ -193,5 +205,134 @@ public class WorkflowEngine {
                 Map.of(), Map.of(), new HashMap<>(ctx.getVariables()),
                 new HashMap<>(ctx.getHeaders()), Set.copyOf(ctx.getIdempotencyKeys()),
                 ctx.getTopologyLayers(), null, ctx.getStartedAt(), Instant.now());
+    }
+
+    /**
+     * Invoke all {@code @OnWorkflowComplete} callbacks registered on the workflow bean.
+     * Async callbacks are fire-and-forget on boundedElastic. Exceptions are logged and swallowed.
+     */
+    private Mono<Void> invokeWorkflowCompleteCallbacks(WorkflowDefinition def, ExecutionContext ctx) {
+        List<Method> methods = def.onWorkflowCompleteMethods();
+        if (methods == null || methods.isEmpty()) {
+            return Mono.empty();
+        }
+
+        Object bean = def.workflowBean();
+        if (bean == null) return Mono.empty();
+
+        List<Mono<Void>> syncInvocations = new ArrayList<>();
+
+        for (Method m : methods) {
+            OnWorkflowComplete ann = m.getAnnotation(OnWorkflowComplete.class);
+
+            Mono<Void> invoke = Mono.fromRunnable(() -> {
+                try {
+                    m.setAccessible(true);
+                    Object[] args = resolveCallbackArgs(m, ctx);
+                    m.invoke(bean, args);
+                } catch (Exception e) {
+                    log.warn("[workflow] @OnWorkflowComplete callback '{}' failed", m.getName(), e);
+                }
+            });
+
+            if (ann.async()) {
+                invoke.subscribeOn(Schedulers.boundedElastic()).subscribe();
+            } else {
+                syncInvocations.add(invoke);
+            }
+        }
+
+        return Flux.concat(syncInvocations).then();
+    }
+
+    /**
+     * Invoke all {@code @OnWorkflowError} callbacks registered on the workflow bean.
+     * Filters by {@code errorTypes} and {@code stepIds} if specified. Async callbacks are fire-and-forget.
+     * Exceptions in callbacks are logged and swallowed.
+     */
+    private Mono<Void> invokeWorkflowErrorCallbacks(WorkflowDefinition def, ExecutionContext ctx, Throwable error) {
+        List<Method> methods = def.onWorkflowErrorMethods();
+        if (methods == null || methods.isEmpty()) {
+            return Mono.empty();
+        }
+
+        Object bean = def.workflowBean();
+        if (bean == null) return Mono.empty();
+
+        List<Mono<Void>> syncInvocations = new ArrayList<>();
+
+        for (Method m : methods) {
+            OnWorkflowError ann = m.getAnnotation(OnWorkflowError.class);
+
+            // Filter by errorTypes if specified
+            if (ann.errorTypes().length > 0) {
+                boolean matches = Arrays.stream(ann.errorTypes())
+                        .anyMatch(t -> t.isInstance(error));
+                if (!matches) continue;
+            }
+
+            // Filter by stepIds if specified (check if a matching step has failed)
+            if (ann.stepIds().length > 0) {
+                boolean stepMatch = ctx.getStepStatuses().entrySet().stream()
+                        .anyMatch(e -> Arrays.asList(ann.stepIds()).contains(e.getKey())
+                                && e.getValue() == org.fireflyframework.orchestration.core.model.StepStatus.FAILED);
+                if (!stepMatch) continue;
+            }
+
+            Mono<Void> invoke = Mono.fromRunnable(() -> {
+                try {
+                    m.setAccessible(true);
+                    Object[] args = resolveCallbackArgs(m, error, ctx);
+                    m.invoke(bean, args);
+                } catch (Exception e) {
+                    log.warn("[workflow] @OnWorkflowError callback '{}' failed", m.getName(), e);
+                }
+            });
+
+            if (ann.async()) {
+                invoke.subscribeOn(Schedulers.boundedElastic()).subscribe();
+            } else {
+                syncInvocations.add(invoke);
+            }
+        }
+
+        return Flux.concat(syncInvocations).then();
+    }
+
+    /**
+     * Resolve arguments for a lifecycle callback method by matching parameter types.
+     */
+    private Object[] resolveCallbackArgs(Method method, Object... candidates) {
+        Class<?>[] paramTypes = method.getParameterTypes();
+        Object[] args = new Object[paramTypes.length];
+
+        for (int i = 0; i < paramTypes.length; i++) {
+            Class<?> pt = paramTypes[i];
+            if (ExecutionContext.class.isAssignableFrom(pt)) {
+                for (Object c : candidates) {
+                    if (c instanceof ExecutionContext) { args[i] = c; break; }
+                }
+            } else if (Throwable.class.isAssignableFrom(pt)) {
+                for (Object c : candidates) {
+                    if (c instanceof Throwable) { args[i] = c; break; }
+                }
+            } else if (pt == Object.class) {
+                // For Object, prefer Throwable or result based on context
+                for (Object c : candidates) {
+                    if (c != null && !(c instanceof ExecutionContext)) {
+                        args[i] = c;
+                        break;
+                    }
+                }
+            } else {
+                for (Object c : candidates) {
+                    if (c != null && pt.isAssignableFrom(c.getClass())) {
+                        args[i] = c;
+                        break;
+                    }
+                }
+            }
+        }
+        return args;
     }
 }

@@ -28,6 +28,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.util.StringUtils;
 import lombok.extern.slf4j.Slf4j;
 
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.*;
@@ -141,10 +142,10 @@ public class WorkflowRegistry {
                 continue;
             }
 
-            // Scan lifecycle callbacks
-            Method onStepComplete = findAnnotatedMethod(targetClass, OnStepComplete.class);
-            Method onWorkflowComplete = findAnnotatedMethod(targetClass, OnWorkflowComplete.class);
-            Method onWorkflowError = findAnnotatedMethod(targetClass, OnWorkflowError.class);
+            // Scan lifecycle callbacks (all matching methods, sorted by priority)
+            List<Method> onStepCompleteMethods = findAnnotatedMethods(targetClass, OnStepComplete.class);
+            List<Method> onWorkflowCompleteMethods = findAnnotatedMethods(targetClass, OnWorkflowComplete.class);
+            List<Method> onWorkflowErrorMethods = findAnnotatedMethods(targetClass, OnWorkflowError.class);
 
             RetryPolicy wfRetryPolicy = wfAnn.maxRetries() > 0
                     ? new RetryPolicy(wfAnn.maxRetries(), Duration.ofMillis(wfAnn.retryDelayMs()),
@@ -155,7 +156,7 @@ public class WorkflowRegistry {
                     workflowId, name, wfAnn.description(), wfAnn.version(),
                     List.copyOf(steps), wfAnn.triggerMode(), wfAnn.triggerEventType(),
                     wfAnn.timeoutMs(), wfRetryPolicy, bean,
-                    onStepComplete, onWorkflowComplete, onWorkflowError);
+                    onStepCompleteMethods, onWorkflowCompleteMethods, onWorkflowErrorMethods);
 
             TopologyBuilder.validate(wfDef.steps(),
                     WorkflowStepDefinition::stepId,
@@ -168,11 +169,16 @@ public class WorkflowRegistry {
         scanned = true;
     }
 
-    private Method findAnnotatedMethod(Class<?> clazz, Class<? extends java.lang.annotation.Annotation> annotation) {
-        for (Method m : clazz.getMethods()) {
-            if (m.isAnnotationPresent(annotation)) return m;
-        }
-        return null;
+    private List<Method> findAnnotatedMethods(Class<?> clazz, Class<? extends Annotation> ann) {
+        return Arrays.stream(clazz.getDeclaredMethods())
+                .filter(m -> m.isAnnotationPresent(ann))
+                .sorted(Comparator.comparingInt(m -> {
+                    if (ann == OnStepComplete.class) return m.getAnnotation(OnStepComplete.class).priority();
+                    if (ann == OnWorkflowComplete.class) return m.getAnnotation(OnWorkflowComplete.class).priority();
+                    if (ann == OnWorkflowError.class) return m.getAnnotation(OnWorkflowError.class).priority();
+                    return 0;
+                }))
+                .toList();
     }
 
     private Method resolveInvocationMethod(Class<?> beanClass, Method targetMethod) {

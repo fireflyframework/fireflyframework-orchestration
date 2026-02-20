@@ -77,7 +77,7 @@ public class WorkflowBuilder {
 
     public WorkflowDefinition build() {
         return new WorkflowDefinition(name, name, description, version, List.copyOf(steps),
-                triggerMode, "", timeoutMs, retryPolicy, null, null, null, null);
+                triggerMode, "", timeoutMs, retryPolicy, null, List.of(), List.of(), List.of());
     }
 
     public static class StepBuilder {
