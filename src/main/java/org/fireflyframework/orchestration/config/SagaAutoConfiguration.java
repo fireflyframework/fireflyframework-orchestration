@@ -22,6 +22,8 @@ import org.fireflyframework.orchestration.core.model.CompensationPolicy;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
+import org.fireflyframework.orchestration.saga.compensation.CompensationErrorHandler;
+import org.fireflyframework.orchestration.saga.compensation.DefaultCompensationErrorHandler;
 import org.fireflyframework.orchestration.saga.compensation.SagaCompensator;
 import org.fireflyframework.orchestration.saga.engine.SagaEngine;
 import org.fireflyframework.orchestration.saga.engine.SagaExecutionOrchestrator;
@@ -60,12 +62,19 @@ public class SagaAutoConfiguration {
     }
 
     @Bean
+    @ConditionalOnMissingBean(CompensationErrorHandler.class)
+    public CompensationErrorHandler compensationErrorHandler() {
+        return new DefaultCompensationErrorHandler();
+    }
+
+    @Bean
     @ConditionalOnMissingBean
     public SagaCompensator sagaCompensator(OrchestrationEvents events,
                                             OrchestrationProperties properties,
-                                            StepInvoker stepInvoker) {
+                                            StepInvoker stepInvoker,
+                                            CompensationErrorHandler errorHandler) {
         CompensationPolicy policy = properties.getSaga().getCompensationPolicy();
-        return new SagaCompensator(events, policy, stepInvoker);
+        return new SagaCompensator(events, policy, stepInvoker, errorHandler);
     }
 
     @Bean

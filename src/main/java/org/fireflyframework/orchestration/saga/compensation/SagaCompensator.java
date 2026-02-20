@@ -24,6 +24,7 @@ import org.fireflyframework.orchestration.core.observability.OrchestrationEvents
 import org.fireflyframework.orchestration.core.step.StepHandler;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.core.topology.TopologyBuilder;
+import org.fireflyframework.orchestration.saga.compensation.CompensationErrorHandler.CompensationErrorResult;
 import org.fireflyframework.orchestration.saga.registry.SagaDefinition;
 import org.fireflyframework.orchestration.saga.registry.SagaStepDefinition;
 import lombok.extern.slf4j.Slf4j;
@@ -41,6 +42,10 @@ import java.util.*;
  * {@link CompensationPolicy#RETRY_WITH_BACKOFF},
  * {@link CompensationPolicy#CIRCUIT_BREAKER},
  * {@link CompensationPolicy#BEST_EFFORT_PARALLEL}.
+ *
+ * <p>Delegates compensation error decisions to a pluggable {@link CompensationErrorHandler}.
+ * If no handler is provided, {@link DefaultCompensationErrorHandler} is used, which returns
+ * {@link CompensationErrorResult#CONTINUE} to preserve historical swallow-and-continue behavior.
  */
 @Slf4j
 public class SagaCompensator {
@@ -48,11 +53,18 @@ public class SagaCompensator {
     private final OrchestrationEvents events;
     private final CompensationPolicy policy;
     private final StepInvoker invoker;
+    private final CompensationErrorHandler errorHandler;
 
     public SagaCompensator(OrchestrationEvents events, CompensationPolicy policy, StepInvoker invoker) {
+        this(events, policy, invoker, null);
+    }
+
+    public SagaCompensator(OrchestrationEvents events, CompensationPolicy policy,
+                            StepInvoker invoker, CompensationErrorHandler errorHandler) {
         this.events = events;
         this.policy = policy != null ? policy : CompensationPolicy.STRICT_SEQUENTIAL;
         this.invoker = invoker;
+        this.errorHandler = errorHandler != null ? errorHandler : new DefaultCompensationErrorHandler();
     }
 
     public Mono<Void> compensate(String sagaName, SagaDefinition saga,
@@ -127,7 +139,7 @@ public class SagaCompensator {
                                     circuitOpen[0] = true;
                                     log.warn("[orchestration] Circuit opened after critical compensation failure: step={}", stepId);
                                 }
-                                return Mono.empty();
+                                return handleCompensationError(sagaName, stepId, err, ctx);
                             });
                 })
                 .then();
@@ -154,8 +166,10 @@ public class SagaCompensator {
             Object arg = resolveCompensationArg(sd, stepInputs, ctx);
             return ((Mono<Void>) ((StepHandler) sd.handler).compensate(arg, ctx))
                     .doOnSuccess(v -> markCompensated(sagaName, stepId, ctx))
-                    .doOnError(err -> markCompensationFailed(sagaName, stepId, err, ctx))
-                    .onErrorResume(err -> Mono.empty())
+                    .onErrorResume(err -> {
+                        markCompensationFailed(sagaName, stepId, err, ctx);
+                        return handleCompensationError(sagaName, stepId, err, ctx);
+                    })
                     .then();
         }
 
@@ -167,8 +181,10 @@ public class SagaCompensator {
         return invoker.attemptCall(targetBean, comp, arg, ctx, 0, 0, 0, false, 0, stepId + "_comp", false)
                 .doOnNext(obj -> ctx.putCompensationResult(stepId, obj))
                 .doOnSuccess(v -> markCompensated(sagaName, stepId, ctx))
-                .doOnError(err -> markCompensationFailed(sagaName, stepId, err, ctx))
-                .onErrorResume(err -> Mono.empty())
+                .onErrorResume(err -> {
+                    markCompensationFailed(sagaName, stepId, err, ctx);
+                    return handleCompensationError(sagaName, stepId, err, ctx);
+                })
                 .then();
     }
 
@@ -196,7 +212,9 @@ public class SagaCompensator {
             Mono<Void> mono = compensation
                     .doOnSuccess(v -> markCompensated(sagaName, stepId, ctx))
                     .doOnError(err -> markCompensationFailed(sagaName, stepId, err, ctx));
-            if (swallowErrors) mono = mono.onErrorResume(err -> Mono.empty());
+            if (swallowErrors) {
+                mono = mono.onErrorResume(err -> handleCompensationError(sagaName, stepId, err, ctx));
+            }
             return mono;
         }
 
@@ -210,8 +228,50 @@ public class SagaCompensator {
                 .doOnNext(obj -> ctx.putCompensationResult(stepId, obj))
                 .doOnSuccess(v -> markCompensated(sagaName, stepId, ctx))
                 .doOnError(err -> markCompensationFailed(sagaName, stepId, err, ctx));
-        if (swallowErrors) mono = mono.onErrorResume(err -> Mono.empty());
+        if (swallowErrors) {
+            mono = mono.onErrorResume(err -> handleCompensationError(sagaName, stepId, err, ctx));
+        }
         return mono.then();
+    }
+
+    /**
+     * Delegates to the {@link CompensationErrorHandler} and translates the result into
+     * the appropriate reactive signal.
+     */
+    private <T> Mono<T> handleCompensationError(String sagaName, String stepId,
+                                                  Throwable err, ExecutionContext ctx) {
+        CompensationErrorResult result = errorHandler.handle(sagaName, stepId, err, 0);
+        return switch (result) {
+            case CONTINUE -> {
+                log.debug("[orchestration] Error handler returned CONTINUE for step '{}' in saga '{}'",
+                        stepId, sagaName);
+                yield Mono.empty();
+            }
+            case RETRY -> {
+                log.debug("[orchestration] Error handler returned RETRY for step '{}' in saga '{}'",
+                        stepId, sagaName);
+                // RETRY is not directly applicable in the non-retry path; treat as CONTINUE
+                // The RETRY_WITH_BACKOFF policy handles retries via Reactor retry operators.
+                yield Mono.empty();
+            }
+            case FAIL_SAGA -> {
+                log.warn("[orchestration] Error handler returned FAIL_SAGA for step '{}' in saga '{}': {}",
+                        stepId, sagaName, err.getMessage());
+                yield Mono.error(err);
+            }
+            case SKIP_STEP -> {
+                log.debug("[orchestration] Error handler returned SKIP_STEP for step '{}' in saga '{}'",
+                        stepId, sagaName);
+                yield Mono.empty();
+            }
+            case MARK_COMPENSATED -> {
+                log.debug("[orchestration] Error handler returned MARK_COMPENSATED for step '{}' in saga '{}'",
+                        stepId, sagaName);
+                ctx.setStepStatus(stepId, StepStatus.COMPENSATED);
+                events.onStepCompensated(sagaName, ctx.getCorrelationId(), stepId);
+                yield Mono.empty();
+            }
+        };
     }
 
     @SuppressWarnings("unchecked")
