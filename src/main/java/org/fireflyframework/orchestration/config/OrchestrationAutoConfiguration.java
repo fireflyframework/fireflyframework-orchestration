@@ -37,6 +37,8 @@ import org.fireflyframework.orchestration.workflow.engine.WorkflowEngine;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.beans.factory.SmartInitializingSingleton;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -44,6 +46,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -141,6 +144,21 @@ public class OrchestrationAutoConfiguration {
         log.info("[orchestration] Recovery service initialized with stale threshold: {}",
                 properties.getRecovery().getStaleThreshold());
         return new RecoveryService(persistence, events, properties.getRecovery().getStaleThreshold());
+    }
+
+    @Bean
+    @ConditionalOnBean(RecoveryService.class)
+    public SmartInitializingSingleton recoverySchedulingInitializer(
+            RecoveryService recoveryService, OrchestrationScheduler scheduler,
+            OrchestrationProperties properties) {
+        return () -> {
+            Duration interval = properties.getPersistence().getCleanupInterval();
+            Duration retention = properties.getPersistence().getRetentionPeriod();
+            scheduler.scheduleAtFixedRate("recovery:cleanup",
+                    () -> recoveryService.cleanupCompletedExecutions(retention).subscribe(),
+                    interval.toMillis(), interval.toMillis());
+            log.info("[orchestration] Recovery cleanup scheduled every {}", interval);
+        };
     }
 
     @Bean

@@ -31,6 +31,9 @@ import org.fireflyframework.orchestration.workflow.registry.WorkflowDefinition;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowStepDefinition;
 import org.fireflyframework.orchestration.workflow.signal.SignalService;
 import org.fireflyframework.orchestration.workflow.timer.TimerService;
+import org.fireflyframework.orchestration.core.model.ExecutionStatus;
+import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
+import org.fireflyframework.orchestration.core.persistence.ExecutionState;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.expression.ExpressionParser;
 import org.springframework.expression.spel.standard.SpelExpressionParser;
@@ -42,10 +45,8 @@ import reactor.core.scheduler.Schedulers;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Objects;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 public class WorkflowExecutor {
@@ -56,20 +57,37 @@ public class WorkflowExecutor {
     private final OrchestrationEventPublisher eventPublisher;
     private final SignalService signalService;
     private final TimerService timerService;
+    private final ExecutionPersistenceProvider persistence;
 
     public WorkflowExecutor(StepInvoker stepInvoker, OrchestrationEvents events,
                              OrchestrationEventPublisher eventPublisher,
                              SignalService signalService, TimerService timerService) {
+        this(stepInvoker, events, eventPublisher, signalService, timerService, null);
+    }
+
+    public WorkflowExecutor(StepInvoker stepInvoker, OrchestrationEvents events,
+                             OrchestrationEventPublisher eventPublisher,
+                             SignalService signalService, TimerService timerService,
+                             ExecutionPersistenceProvider persistence) {
         this.stepInvoker = Objects.requireNonNull(stepInvoker, "stepInvoker");
         this.events = events;
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
         this.signalService = signalService;
         this.timerService = timerService;
+        this.persistence = persistence;
     }
 
     public Mono<ExecutionContext> execute(WorkflowDefinition definition, ExecutionContext ctx) {
         List<List<String>> layers = TopologyBuilder.buildLayers(
                 definition.steps(), WorkflowStepDefinition::stepId, WorkflowStepDefinition::dependsOn);
+
+        // Sort each layer by step order (tiebreaker within parallel layers)
+        Map<String, Integer> orderMap = definition.steps().stream()
+                .collect(Collectors.toMap(WorkflowStepDefinition::stepId, WorkflowStepDefinition::order));
+        for (List<String> layer : layers) {
+            layer.sort(Comparator.comparingInt(id -> orderMap.getOrDefault(id, 0)));
+        }
+
         ctx.setTopologyLayers(layers);
 
         return executeLayersSequentially(definition, ctx, layers, 0);
@@ -170,7 +188,12 @@ public class WorkflowExecutor {
                     // Build the timer gate (delays execution after signal resolves)
                     Mono<Void> preStepTimer = Mono.empty();
                     if (stepDef.waitForTimerDelayMs() > 0 && timerService != null) {
-                        preStepTimer = timerService.delay(Duration.ofMillis(stepDef.waitForTimerDelayMs()));
+                        if (stepDef.waitForTimerId() != null && !stepDef.waitForTimerId().isBlank()) {
+                            preStepTimer = timerService.schedule(ctx.getCorrelationId(), stepDef.waitForTimerId(),
+                                    Duration.ofMillis(stepDef.waitForTimerDelayMs()), null).then();
+                        } else {
+                            preStepTimer = timerService.delay(Duration.ofMillis(stepDef.waitForTimerDelayMs()));
+                        }
                     }
 
                     Object input = ctx.getVariables();
@@ -231,6 +254,7 @@ public class WorkflowExecutor {
                                         ctx.getAttempts(stepId), latency);
                                 return publishWorkflowStepEvent(def, stepDef, stepId, result, ctx)
                                         .then(invokeStepCompleteCallbacks(def, stepId, result, ctx))
+                                        .then(saveCheckpoint(def.workflowId(), ctx))
                                         .thenReturn(result);
                             })
                             .switchIfEmpty(Mono.defer(() -> {
@@ -244,6 +268,7 @@ public class WorkflowExecutor {
                                         ctx.getAttempts(stepId), latency);
                                 return publishWorkflowStepEvent(def, stepDef, stepId, null, ctx)
                                         .then(invokeStepCompleteCallbacks(def, stepId, null, ctx))
+                                        .then(saveCheckpoint(def.workflowId(), ctx))
                                         .then(Mono.empty());
                             }))
                             .onErrorResume(error -> {
@@ -262,6 +287,28 @@ public class WorkflowExecutor {
                 })
                 .orElseGet(() -> Mono.error(new StepExecutionException(
                         stepId, "Step not found in workflow definition")));
+    }
+
+    private Mono<Void> saveCheckpoint(String workflowId, ExecutionContext ctx) {
+        if (persistence == null) {
+            return Mono.empty();
+        }
+        var checkpoint = new ExecutionState(
+                ctx.getCorrelationId(), workflowId, ExecutionPattern.WORKFLOW,
+                ExecutionStatus.RUNNING,
+                new HashMap<>(ctx.getStepResults()),
+                new HashMap<>(ctx.getStepStatuses()),
+                new HashMap<>(ctx.getStepAttempts()), new HashMap<>(ctx.getStepLatenciesMs()),
+                new HashMap<>(ctx.getVariables()),
+                new HashMap<>(ctx.getHeaders()),
+                Set.copyOf(ctx.getIdempotencyKeys()),
+                ctx.getTopologyLayers(),
+                null, ctx.getStartedAt(), Instant.now());
+        return persistence.save(checkpoint)
+                .onErrorResume(err -> {
+                    log.warn("[orchestration] Failed to save workflow checkpoint: {}", ctx.getCorrelationId(), err);
+                    return Mono.empty();
+                });
     }
 
     private Mono<Void> publishWorkflowStepEvent(WorkflowDefinition def, WorkflowStepDefinition stepDef,
