@@ -26,11 +26,16 @@ import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.persistence.ExecutionState;
+import org.fireflyframework.orchestration.tcc.annotation.OnTccComplete;
+import org.fireflyframework.orchestration.tcc.annotation.OnTccError;
 import org.fireflyframework.orchestration.tcc.registry.TccDefinition;
 import org.fireflyframework.orchestration.tcc.registry.TccRegistry;
 import lombok.extern.slf4j.Slf4j;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
+import java.lang.reflect.Method;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
@@ -135,7 +140,14 @@ public class TccEngine {
         Mono<Void> publishCompleted = eventPublisher.publish(OrchestrationEvent.executionCompleted(
                 tcc.name, ctx.getCorrelationId(), ExecutionPattern.TCC, finalStatus));
 
-        return persist.then(dlq).then(publishCompleted).thenReturn(tccResult);
+        Mono<Void> callbacks = Mono.empty();
+        if (finalStatus == ExecutionStatus.CONFIRMED) {
+            callbacks = invokeTccCompleteCallbacks(tcc, ctx);
+        } else if (finalStatus == ExecutionStatus.FAILED) {
+            callbacks = invokeTccErrorCallbacks(tcc, ctx, result.getFailureError());
+        }
+
+        return persist.then(dlq).then(publishCompleted).then(callbacks).thenReturn(tccResult);
     }
 
     private Mono<Void> saveToDlq(String tccName, ExecutionContext ctx,
@@ -179,5 +191,94 @@ public class TccEngine {
                     log.warn("[tcc] Failed to persist final state: {}", ctx.getCorrelationId(), err);
                     return Mono.empty();
                 });
+    }
+
+    private Mono<Void> invokeTccCompleteCallbacks(TccDefinition tcc, ExecutionContext ctx) {
+        List<Method> methods = tcc.onTccCompleteMethods;
+        if (methods == null || methods.isEmpty()) return Mono.empty();
+
+        Object bean = tcc.bean;
+        if (bean == null) return Mono.empty();
+
+        List<Mono<Void>> syncInvocations = new ArrayList<>();
+        for (Method m : methods) {
+            OnTccComplete ann = m.getAnnotation(OnTccComplete.class);
+            Mono<Void> invoke = Mono.fromRunnable(() -> {
+                try {
+                    m.setAccessible(true);
+                    Object[] args = resolveCallbackArgs(m, ctx);
+                    m.invoke(bean, args);
+                } catch (Exception e) {
+                    log.warn("[tcc] @OnTccComplete callback '{}' failed", m.getName(), e);
+                }
+            });
+            if (ann.async()) {
+                invoke.subscribeOn(Schedulers.boundedElastic()).subscribe();
+            } else {
+                syncInvocations.add(invoke);
+            }
+        }
+        return Flux.concat(syncInvocations).then();
+    }
+
+    private Mono<Void> invokeTccErrorCallbacks(TccDefinition tcc, ExecutionContext ctx, Throwable error) {
+        List<Method> methods = tcc.onTccErrorMethods;
+        if (methods == null || methods.isEmpty()) return Mono.empty();
+
+        Object bean = tcc.bean;
+        if (bean == null || error == null) return Mono.empty();
+
+        List<Mono<Void>> syncInvocations = new ArrayList<>();
+        for (Method m : methods) {
+            OnTccError ann = m.getAnnotation(OnTccError.class);
+
+            // Filter by errorTypes
+            if (ann.errorTypes().length > 0) {
+                boolean matches = Arrays.stream(ann.errorTypes()).anyMatch(t -> t.isInstance(error));
+                if (!matches) continue;
+            }
+
+            Mono<Void> invoke = Mono.fromRunnable(() -> {
+                try {
+                    m.setAccessible(true);
+                    Object[] args = resolveCallbackArgs(m, error, ctx);
+                    m.invoke(bean, args);
+                } catch (Exception e) {
+                    log.warn("[tcc] @OnTccError callback '{}' failed", m.getName(), e);
+                }
+            });
+            if (ann.async()) {
+                invoke.subscribeOn(Schedulers.boundedElastic()).subscribe();
+            } else {
+                syncInvocations.add(invoke);
+            }
+        }
+        return Flux.concat(syncInvocations).then();
+    }
+
+    private Object[] resolveCallbackArgs(Method method, Object... candidates) {
+        Class<?>[] paramTypes = method.getParameterTypes();
+        Object[] args = new Object[paramTypes.length];
+
+        for (int i = 0; i < paramTypes.length; i++) {
+            Class<?> pt = paramTypes[i];
+            if (ExecutionContext.class.isAssignableFrom(pt)) {
+                for (Object c : candidates) {
+                    if (c instanceof ExecutionContext) { args[i] = c; break; }
+                }
+            } else if (Throwable.class.isAssignableFrom(pt)) {
+                for (Object c : candidates) {
+                    if (c instanceof Throwable) { args[i] = c; break; }
+                }
+            } else {
+                for (Object c : candidates) {
+                    if (c != null && pt.isAssignableFrom(c.getClass())) {
+                        args[i] = c;
+                        break;
+                    }
+                }
+            }
+        }
+        return args;
     }
 }

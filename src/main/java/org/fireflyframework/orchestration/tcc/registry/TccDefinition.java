@@ -16,7 +16,9 @@
 
 package org.fireflyframework.orchestration.tcc.registry;
 
+import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -32,6 +34,8 @@ public class TccDefinition {
     public final int maxRetries;
     public final long backoffMs;
     public final Map<String, TccParticipantDefinition> participants = new LinkedHashMap<>();
+    public List<Method> onTccCompleteMethods = List.of();
+    public List<Method> onTccErrorMethods = List.of();
 
     public TccDefinition(String name, Object bean, Object target,
                          long timeoutMs, boolean retryEnabled, int maxRetries, long backoffMs) {

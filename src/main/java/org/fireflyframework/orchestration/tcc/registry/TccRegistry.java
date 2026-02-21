@@ -79,6 +79,11 @@ public class TccRegistry {
 
             scanParticipants(tccDef, targetClass);
             validateDefinition(tccDef);
+
+            // Scan lifecycle callback methods
+            tccDef.onTccCompleteMethods = findAnnotatedMethods(targetClass, OnTccComplete.class);
+            tccDef.onTccErrorMethods = findAnnotatedMethods(targetClass, OnTccError.class);
+
             tccDefinitions.putIfAbsent(tccAnn.name(), tccDef);
         }
         scanned = true;
@@ -148,5 +153,27 @@ public class TccRegistry {
         if (tccDef.participants.isEmpty()) {
             throw new IllegalStateException("TCC '" + tccDef.name + "' has no participants");
         }
+    }
+
+    private List<Method> findAnnotatedMethods(Class<?> clazz, Class<? extends java.lang.annotation.Annotation> annotationType) {
+        List<Method> methods = new ArrayList<>();
+        for (Method m : clazz.getMethods()) {
+            if (m.isAnnotationPresent(annotationType)) {
+                methods.add(m);
+            }
+        }
+        // Sort by priority (highest first)
+        methods.sort((a, b) -> {
+            int pa = 0, pb = 0;
+            if (annotationType == OnTccComplete.class) {
+                pa = a.getAnnotation(OnTccComplete.class).priority();
+                pb = b.getAnnotation(OnTccComplete.class).priority();
+            } else if (annotationType == OnTccError.class) {
+                pa = a.getAnnotation(OnTccError.class).priority();
+                pb = b.getAnnotation(OnTccError.class).priority();
+            }
+            return Integer.compare(pb, pa);
+        });
+        return List.copyOf(methods);
     }
 }
