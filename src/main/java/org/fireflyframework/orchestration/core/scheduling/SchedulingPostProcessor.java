@@ -24,6 +24,9 @@ import org.fireflyframework.orchestration.tcc.annotation.ScheduledTcc;
 import org.fireflyframework.orchestration.tcc.annotation.Tcc;
 import org.fireflyframework.orchestration.tcc.engine.TccEngine;
 import org.fireflyframework.orchestration.tcc.engine.TccInputs;
+import org.fireflyframework.orchestration.workflow.annotation.ScheduledWorkflow;
+import org.fireflyframework.orchestration.workflow.annotation.Workflow;
+import org.fireflyframework.orchestration.workflow.engine.WorkflowEngine;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.SmartInitializingSingleton;
@@ -32,8 +35,9 @@ import org.springframework.context.ApplicationContext;
 import java.util.Map;
 
 /**
- * Scans for beans annotated with {@link ScheduledSaga} and {@link ScheduledTcc},
- * and registers the corresponding scheduled tasks with the {@link OrchestrationScheduler}.
+ * Scans for beans annotated with {@link ScheduledSaga}, {@link ScheduledTcc},
+ * and {@link ScheduledWorkflow}, and registers the corresponding scheduled tasks
+ * with the {@link OrchestrationScheduler}.
  */
 @Slf4j
 public class SchedulingPostProcessor implements SmartInitializingSingleton {
@@ -42,15 +46,18 @@ public class SchedulingPostProcessor implements SmartInitializingSingleton {
     private final OrchestrationScheduler scheduler;
     private final SagaEngine sagaEngine;
     private final TccEngine tccEngine;
+    private final WorkflowEngine workflowEngine;
 
     public SchedulingPostProcessor(ApplicationContext applicationContext,
                                    OrchestrationScheduler scheduler,
                                    SagaEngine sagaEngine,
-                                   TccEngine tccEngine) {
+                                   TccEngine tccEngine,
+                                   WorkflowEngine workflowEngine) {
         this.applicationContext = applicationContext;
         this.scheduler = scheduler;
         this.sagaEngine = sagaEngine;
         this.tccEngine = tccEngine;
+        this.workflowEngine = workflowEngine;
     }
 
     @Override
@@ -60,6 +67,9 @@ public class SchedulingPostProcessor implements SmartInitializingSingleton {
         }
         if (tccEngine != null) {
             scanScheduledTccs();
+        }
+        if (workflowEngine != null) {
+            scanScheduledWorkflows();
         }
     }
 
@@ -98,6 +108,43 @@ public class SchedulingPostProcessor implements SmartInitializingSingleton {
                         schedAnn.fixedRate(),
                         () -> tccEngine.execute(tccName, TccInputs.empty()).subscribe());
             }
+        }
+    }
+
+    private void scanScheduledWorkflows() {
+        Map<String, Object> workflowBeans = applicationContext.getBeansWithAnnotation(Workflow.class);
+        for (var entry : workflowBeans.entrySet()) {
+            Class<?> cls = AopUtils.getTargetClass(entry.getValue());
+            Workflow wfAnn = cls.getAnnotation(Workflow.class);
+            if (wfAnn == null) continue;
+            String resolvedId = wfAnn.id().isBlank() ? wfAnn.name() : wfAnn.id();
+            if (resolvedId.isBlank()) resolvedId = cls.getSimpleName();
+            final String workflowId = resolvedId;
+
+            ScheduledWorkflow[] schedAnns = cls.getAnnotationsByType(ScheduledWorkflow.class);
+            if (schedAnns.length == 0) continue;
+
+            for (ScheduledWorkflow schedAnn : schedAnns) {
+                if (!schedAnn.enabled()) continue;
+                Map<String, Object> input = parseInput(schedAnn.input());
+                registerSchedule(workflowId, "workflow", schedAnn.cron(), schedAnn.fixedDelay(),
+                        schedAnn.fixedRate(),
+                        () -> workflowEngine.startWorkflow(workflowId, input).subscribe());
+            }
+        }
+    }
+
+    private Map<String, Object> parseInput(String jsonInput) {
+        if (jsonInput == null || jsonInput.isBlank() || jsonInput.equals("{}")) {
+            return Map.of();
+        }
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> result = new com.fasterxml.jackson.databind.ObjectMapper().readValue(jsonInput, Map.class);
+            return result;
+        } catch (Exception e) {
+            log.warn("[scheduling] Failed to parse input JSON '{}': {}", jsonInput, e.getMessage());
+            return Map.of();
         }
     }
 

@@ -33,6 +33,7 @@ import org.fireflyframework.orchestration.core.scheduling.SchedulingPostProcesso
 import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.saga.engine.SagaEngine;
 import org.fireflyframework.orchestration.tcc.engine.TccEngine;
+import org.fireflyframework.orchestration.workflow.engine.WorkflowEngine;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -147,9 +148,11 @@ public class OrchestrationAutoConfiguration {
     public SchedulingPostProcessor schedulingPostProcessor(ApplicationContext applicationContext,
                                                            OrchestrationScheduler scheduler,
                                                            ObjectProvider<SagaEngine> sagaEngine,
-                                                           ObjectProvider<TccEngine> tccEngine) {
+                                                           ObjectProvider<TccEngine> tccEngine,
+                                                           ObjectProvider<WorkflowEngine> workflowEngine) {
         log.info("[orchestration] Scheduling post-processor initialized");
         return new SchedulingPostProcessor(applicationContext, scheduler,
-                sagaEngine.getIfAvailable(), tccEngine.getIfAvailable());
+                sagaEngine.getIfAvailable(), tccEngine.getIfAvailable(),
+                workflowEngine.getIfAvailable());
     }
 }
