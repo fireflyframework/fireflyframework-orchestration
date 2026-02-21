@@ -1,0 +1,206 @@
+{
+  "groups": [
+    {
+      "name": "firefly.orchestration",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties"
+    },
+    {
+      "name": "firefly.orchestration.dlq",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$DlqProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
+      "sourceMethod": "getDlq()"
+    },
+    {
+      "name": "firefly.orchestration.health",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$HealthProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
+      "sourceMethod": "getHealth()"
+    },
+    {
+      "name": "firefly.orchestration.metrics",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$MetricsProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
+      "sourceMethod": "getMetrics()"
+    },
+    {
+      "name": "firefly.orchestration.persistence",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$PersistenceProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
+      "sourceMethod": "getPersistence()"
+    },
+    {
+      "name": "firefly.orchestration.recovery",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$RecoveryProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
+      "sourceMethod": "getRecovery()"
+    },
+    {
+      "name": "firefly.orchestration.resilience",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$ResilienceProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
+      "sourceMethod": "getResilience()"
+    },
+    {
+      "name": "firefly.orchestration.rest",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$RestProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
+      "sourceMethod": "getRest()"
+    },
+    {
+      "name": "firefly.orchestration.saga",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$SagaProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
+      "sourceMethod": "getSaga()"
+    },
+    {
+      "name": "firefly.orchestration.scheduling",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$SchedulingProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
+      "sourceMethod": "getScheduling()"
+    },
+    {
+      "name": "firefly.orchestration.tcc",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$TccProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
+      "sourceMethod": "getTcc()"
+    },
+    {
+      "name": "firefly.orchestration.tracing",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$TracingProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
+      "sourceMethod": "getTracing()"
+    },
+    {
+      "name": "firefly.orchestration.workflow",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$WorkflowProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
+      "sourceMethod": "getWorkflow()"
+    }
+  ],
+  "properties": [
+    {
+      "name": "firefly.orchestration.dlq.enabled",
+      "type": "java.lang.Boolean",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$DlqProperties",
+      "defaultValue": true
+    },
+    {
+      "name": "firefly.orchestration.health.enabled",
+      "type": "java.lang.Boolean",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$HealthProperties",
+      "defaultValue": true
+    },
+    {
+      "name": "firefly.orchestration.metrics.enabled",
+      "type": "java.lang.Boolean",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$MetricsProperties",
+      "defaultValue": true
+    },
+    {
+      "name": "firefly.orchestration.persistence.cleanup-interval",
+      "type": "java.time.Duration",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$PersistenceProperties",
+      "defaultValue": "1h"
+    },
+    {
+      "name": "firefly.orchestration.persistence.key-prefix",
+      "type": "java.lang.String",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$PersistenceProperties",
+      "defaultValue": "orchestration:"
+    },
+    {
+      "name": "firefly.orchestration.persistence.key-ttl",
+      "type": "java.time.Duration",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$PersistenceProperties"
+    },
+    {
+      "name": "firefly.orchestration.persistence.provider",
+      "type": "java.lang.String",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$PersistenceProperties",
+      "defaultValue": "in-memory"
+    },
+    {
+      "name": "firefly.orchestration.persistence.retention-period",
+      "type": "java.time.Duration",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$PersistenceProperties",
+      "defaultValue": "7d"
+    },
+    {
+      "name": "firefly.orchestration.recovery.enabled",
+      "type": "java.lang.Boolean",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$RecoveryProperties",
+      "defaultValue": true
+    },
+    {
+      "name": "firefly.orchestration.recovery.stale-threshold",
+      "type": "java.time.Duration",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$RecoveryProperties",
+      "defaultValue": "1h"
+    },
+    {
+      "name": "firefly.orchestration.resilience.enabled",
+      "type": "java.lang.Boolean",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$ResilienceProperties",
+      "defaultValue": true
+    },
+    {
+      "name": "firefly.orchestration.rest.enabled",
+      "type": "java.lang.Boolean",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$RestProperties",
+      "defaultValue": true
+    },
+    {
+      "name": "firefly.orchestration.saga.compensation-policy",
+      "type": "org.fireflyframework.orchestration.core.model.CompensationPolicy",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$SagaProperties",
+      "defaultValue": "strict-sequential"
+    },
+    {
+      "name": "firefly.orchestration.saga.default-timeout",
+      "type": "java.time.Duration",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$SagaProperties",
+      "defaultValue": "5m"
+    },
+    {
+      "name": "firefly.orchestration.saga.enabled",
+      "type": "java.lang.Boolean",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$SagaProperties",
+      "defaultValue": true
+    },
+    {
+      "name": "firefly.orchestration.scheduling.thread-pool-size",
+      "type": "java.lang.Integer",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$SchedulingProperties",
+      "defaultValue": 4
+    },
+    {
+      "name": "firefly.orchestration.tcc.default-timeout",
+      "type": "java.time.Duration",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$TccProperties",
+      "defaultValue": "30s"
+    },
+    {
+      "name": "firefly.orchestration.tcc.enabled",
+      "type": "java.lang.Boolean",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$TccProperties",
+      "defaultValue": true
+    },
+    {
+      "name": "firefly.orchestration.tracing.enabled",
+      "type": "java.lang.Boolean",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$TracingProperties",
+      "defaultValue": true
+    },
+    {
+      "name": "firefly.orchestration.workflow.enabled",
+      "type": "java.lang.Boolean",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$WorkflowProperties",
+      "defaultValue": true
+    }
+  ],
+  "hints": [],
+  "ignored": {
+    "properties": []
+  }
+}

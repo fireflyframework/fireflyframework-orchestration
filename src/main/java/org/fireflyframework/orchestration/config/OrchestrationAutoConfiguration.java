@@ -41,9 +41,11 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * Main auto-configuration for the Orchestration framework.
@@ -76,11 +78,15 @@ public class OrchestrationAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(OrchestrationEvents.class)
-    public OrchestrationEvents orchestrationEvents(ObjectProvider<OrchestrationLoggerEvents> loggerEvents) {
-        List<OrchestrationEvents> delegates = new ArrayList<>();
-        OrchestrationLoggerEvents logger = loggerEvents.getIfAvailable();
-        if (logger != null) {
+    @Primary
+    @ConditionalOnMissingBean(name = "orchestrationEvents")
+    public OrchestrationEvents orchestrationEvents(List<OrchestrationEvents> allEvents,
+                                                    ObjectProvider<OrchestrationLoggerEvents> loggerEvents) {
+        List<OrchestrationEvents> delegates = allEvents.stream()
+                .filter(e -> !(e instanceof CompositeOrchestrationEvents))
+                .collect(Collectors.toCollection(ArrayList::new));
+        if (delegates.isEmpty()) {
+            OrchestrationLoggerEvents logger = loggerEvents.getIfAvailable(OrchestrationLoggerEvents::new);
             delegates.add(logger);
         }
         if (delegates.size() == 1) {

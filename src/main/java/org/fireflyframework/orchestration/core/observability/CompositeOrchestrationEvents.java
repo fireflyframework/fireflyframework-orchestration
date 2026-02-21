@@ -58,5 +58,10 @@ public class CompositeOrchestrationEvents implements OrchestrationEvents {
     @Override public void onCompositionStarted(String compositionName, String correlationId) { safeForEach(d -> d.onCompositionStarted(compositionName, correlationId)); }
     @Override public void onCompositionCompleted(String compositionName, String correlationId, boolean success) { safeForEach(d -> d.onCompositionCompleted(compositionName, correlationId, success)); }
     @Override public void onStepSkippedIdempotent(String name, String correlationId, String stepId) { safeForEach(d -> d.onStepSkippedIdempotent(name, correlationId, stepId)); }
+    @Override public void onSignalDelivered(String name, String correlationId, String signalName) { safeForEach(d -> d.onSignalDelivered(name, correlationId, signalName)); }
+    @Override public void onTimerFired(String name, String correlationId, String timerId) { safeForEach(d -> d.onTimerFired(name, correlationId, timerId)); }
+    @Override public void onChildWorkflowStarted(String parentName, String parentCorrelationId, String childWorkflowId, String childCorrelationId) { safeForEach(d -> d.onChildWorkflowStarted(parentName, parentCorrelationId, childWorkflowId, childCorrelationId)); }
+    @Override public void onChildWorkflowCompleted(String parentName, String parentCorrelationId, String childCorrelationId, boolean success) { safeForEach(d -> d.onChildWorkflowCompleted(parentName, parentCorrelationId, childCorrelationId, success)); }
+    @Override public void onContinueAsNew(String name, String oldCorrelationId, String newCorrelationId) { safeForEach(d -> d.onContinueAsNew(name, oldCorrelationId, newCorrelationId)); }
     @Override public void onDeadLettered(String name, String correlationId, String stepId, Throwable error) { safeForEach(d -> d.onDeadLettered(name, correlationId, stepId, error)); }
 }
