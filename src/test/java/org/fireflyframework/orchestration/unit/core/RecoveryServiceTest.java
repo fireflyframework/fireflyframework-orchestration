@@ -16,12 +16,15 @@
 
 package org.fireflyframework.orchestration.unit.core;
 
+import org.fireflyframework.orchestration.config.OrchestrationProperties;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.ExecutionState;
 import org.fireflyframework.orchestration.core.persistence.InMemoryPersistenceProvider;
 import org.fireflyframework.orchestration.core.recovery.RecoveryService;
+import org.fireflyframework.orchestration.core.scheduling.OrchestrationScheduler;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import reactor.test.StepVerifier;
@@ -38,12 +41,20 @@ class RecoveryServiceTest {
 
     private InMemoryPersistenceProvider persistence;
     private RecoveryService recoveryService;
+    private OrchestrationScheduler scheduler;
 
     @BeforeEach
     void setUp() {
         persistence = new InMemoryPersistenceProvider();
         var events = new OrchestrationEvents() {};
         recoveryService = new RecoveryService(persistence, events, Duration.ofMinutes(30));
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (scheduler != null) {
+            scheduler.shutdown();
+        }
     }
 
     @Test
@@ -131,5 +142,22 @@ class RecoveryServiceTest {
                 persistence, new OrchestrationEvents() {}, Duration.ofMinutes(-5)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("positive");
+    }
+
+    @Test
+    void recoverySchedulingInitializer_registersCleanupTask() {
+        scheduler = new OrchestrationScheduler(1);
+        var properties = new OrchestrationProperties();
+
+        assertThat(scheduler.activeTaskCount()).isZero();
+
+        // Simulate what the SmartInitializingSingleton bean does
+        Duration interval = properties.getPersistence().getCleanupInterval();
+        Duration retention = properties.getPersistence().getRetentionPeriod();
+        scheduler.scheduleAtFixedRate("recovery:cleanup",
+                () -> recoveryService.cleanupCompletedExecutions(retention).subscribe(),
+                interval.toMillis(), interval.toMillis());
+
+        assertThat(scheduler.activeTaskCount()).isEqualTo(1);
     }
 }
