@@ -52,6 +52,7 @@ public class WorkflowExecutor {
 
     private final StepInvoker stepInvoker;
     private final OrchestrationEvents events;
+    private static final ExpressionParser SPEL_PARSER = new SpelExpressionParser();
     private final OrchestrationEventPublisher eventPublisher;
     private final SignalService signalService;
     private final TimerService timerService;
@@ -116,13 +117,12 @@ public class WorkflowExecutor {
                     // Evaluate condition expression (SpEL) — before signal/timer gates
                     if (stepDef.condition() != null && !stepDef.condition().isBlank()) {
                         try {
-                            ExpressionParser parser = new SpelExpressionParser();
                             StandardEvaluationContext evalCtx = new StandardEvaluationContext();
                             evalCtx.setVariable("ctx", ctx);
                             evalCtx.setVariable("results", ctx.getStepResults());
                             evalCtx.setVariable("variables", ctx.getVariables());
                             evalCtx.setVariable("headers", ctx.getHeaders());
-                            Boolean result = parser.parseExpression(stepDef.condition())
+                            Boolean result = SPEL_PARSER.parseExpression(stepDef.condition())
                                     .getValue(evalCtx, Boolean.class);
                             if (Boolean.FALSE.equals(result)) {
                                 ctx.setStepStatus(stepId, StepStatus.SKIPPED);

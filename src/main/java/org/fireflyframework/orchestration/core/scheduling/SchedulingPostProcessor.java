@@ -113,7 +113,7 @@ public class SchedulingPostProcessor implements SmartInitializingSingleton {
             log.info("[scheduling] Registered fixed-rate schedule for {} '{}' every {}ms", type, name, fixedRate);
         }
         if (fixedDelay > 0) {
-            scheduler.scheduleAtFixedRate(taskId + ":delay", task, fixedDelay, fixedDelay);
+            scheduler.scheduleWithFixedDelay(taskId + ":delay", task, fixedDelay, fixedDelay);
             log.info("[scheduling] Registered fixed-delay schedule for {} '{}' every {}ms", type, name, fixedDelay);
         }
     }

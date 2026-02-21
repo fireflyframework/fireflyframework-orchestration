@@ -54,6 +54,21 @@ public class OrchestrationScheduler {
         log.info("[scheduler] Scheduled task '{}' with period {}ms", taskId, periodMs);
     }
 
+    public void scheduleWithFixedDelay(String taskId, Runnable task, long initialDelayMs, long delayMs) {
+        var future = executor.scheduleWithFixedDelay(() -> {
+            try {
+                task.run();
+            } catch (Exception e) {
+                log.error("[scheduler] Task '{}' failed: {}", taskId, e.getMessage(), e);
+            }
+        }, initialDelayMs, delayMs, TimeUnit.MILLISECONDS);
+        var existing = scheduledTasks.put(taskId, future);
+        if (existing != null) {
+            existing.cancel(false);
+        }
+        log.info("[scheduler] Scheduled task '{}' with fixed delay {}ms", taskId, delayMs);
+    }
+
     public void scheduleWithCron(String taskId, Runnable task, String cronExpression) {
         CronExpression cron = CronExpression.parse(cronExpression);
         scheduleNextCronExecution(taskId, task, cron);

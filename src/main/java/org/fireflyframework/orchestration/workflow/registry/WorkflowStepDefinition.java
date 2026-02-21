@@ -44,6 +44,17 @@ public record WorkflowStepDefinition(
         long waitForTimerDelayMs,
         String waitForTimerId
 ) {
+    public WorkflowStepDefinition(String stepId, String name, String description,
+                                   List<String> dependsOn, int order, StepTriggerMode triggerMode,
+                                   String inputEventType, String outputEventType, long timeoutMs,
+                                   RetryPolicy retryPolicy, String condition, boolean async,
+                                   boolean compensatable, String compensationMethod,
+                                   Object bean, Method method) {
+        this(stepId, name, description, dependsOn, order, triggerMode, inputEventType,
+                outputEventType, timeoutMs, retryPolicy, condition, async, compensatable,
+                compensationMethod, bean, method, null, 0, 0, null);
+    }
+
     public boolean hasDependencies() {
         return dependsOn != null && !dependsOn.isEmpty();
     }
