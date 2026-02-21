@@ -24,7 +24,6 @@ import org.fireflyframework.orchestration.core.event.NoOpEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.RetryPolicy;
-import org.fireflyframework.orchestration.core.model.StepTriggerMode;
 import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.InMemoryPersistenceProvider;
@@ -74,7 +73,7 @@ class WorkflowDlqTest {
         var testSteps = new FailingSteps();
         var def = new WorkflowDefinition("dlq-wf", "DLQ Workflow", "test", "1.0",
                 List.of(new WorkflowStepDefinition("fail-step", "Fail Step", "", List.of(), 0,
-                        StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                        "", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
                         testSteps, FailingSteps.class.getMethod("failStep", Map.class),
                         null, 0, 0, null)),
@@ -111,7 +110,7 @@ class WorkflowDlqTest {
         var testSteps = new FailingSteps();
         var def = new WorkflowDefinition("no-dlq-wf", "No DLQ Workflow", "test", "1.0",
                 List.of(new WorkflowStepDefinition("fail-step", "Fail Step", "", List.of(), 0,
-                        StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                        "", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
                         testSteps, FailingSteps.class.getMethod("failStep", Map.class),
                         null, 0, 0, null)),

@@ -24,7 +24,6 @@ import org.fireflyframework.orchestration.core.event.NoOpEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.RetryPolicy;
 import org.fireflyframework.orchestration.core.model.StepStatus;
-import org.fireflyframework.orchestration.core.model.StepTriggerMode;
 import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.InMemoryPersistenceProvider;
@@ -81,7 +80,7 @@ class WorkflowConditionAsyncTest {
                                             List<String> dependsOn, Object bean, String methodName) throws Exception {
         return new WorkflowStepDefinition(
                 stepId, stepId, "", dependsOn, 0,
-                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY,
+                "", 5000, RetryPolicy.NO_RETRY,
                 condition, async, false, "",
                 bean, bean.getClass().getMethod(methodName, Map.class),
                 null, 0, 0, null);
@@ -207,7 +206,7 @@ class WorkflowConditionAsyncTest {
         var stepMethod = errorBean.getClass().getMethod("failStep", Map.class);
         var step = new WorkflowStepDefinition(
                 "async-fail", "async-fail", "", List.of(), 0,
-                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY,
+                "", 5000, RetryPolicy.NO_RETRY,
                 "", true, false, "",
                 errorBean, stepMethod,
                 null, 0, 0, null);
@@ -245,7 +244,7 @@ class WorkflowConditionAsyncTest {
         var bean = new TestSteps();
         var step = new WorkflowStepDefinition(
                 "guarded", "guarded", "", List.of(), 0,
-                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY,
+                "", 5000, RetryPolicy.NO_RETRY,
                 null, false, false, "",
                 bean, TestSteps.class.getMethod("normalStep", Map.class),
                 null, 0, 0, null);

@@ -147,7 +147,14 @@ public class TccEngine {
             callbacks = invokeTccErrorCallbacks(tcc, ctx, result.getFailureError());
         }
 
-        return persist.then(dlq).then(publishCompleted).then(callbacks).thenReturn(tccResult);
+        return persist.then(dlq).then(publishCompleted).then(callbacks)
+                .then(Mono.defer(() -> {
+                    if (finalStatus == ExecutionStatus.FAILED && result.getFailureError() != null
+                            && shouldSuppressError(tcc, result.getFailureError())) {
+                        return Mono.just(TccResult.confirmed(tcc.name, ctx, result.getParticipantOutcomes()));
+                    }
+                    return Mono.just(tccResult);
+                }));
     }
 
     private Mono<Void> saveToDlq(String tccName, ExecutionContext ctx,
@@ -255,6 +262,20 @@ public class TccEngine {
             }
         }
         return Flux.concat(syncInvocations).then();
+    }
+
+    private boolean shouldSuppressError(TccDefinition tcc, Throwable error) {
+        List<Method> methods = tcc.onTccErrorMethods;
+        if (methods == null || methods.isEmpty()) return false;
+
+        for (Method m : methods) {
+            OnTccError ann = m.getAnnotation(OnTccError.class);
+            if (ann == null || !ann.suppressError()) continue;
+
+            if (ann.errorTypes().length == 0) return true;
+            if (Arrays.stream(ann.errorTypes()).anyMatch(t -> t.isInstance(error))) return true;
+        }
+        return false;
     }
 
     private Object[] resolveCallbackArgs(Method method, Object... candidates) {

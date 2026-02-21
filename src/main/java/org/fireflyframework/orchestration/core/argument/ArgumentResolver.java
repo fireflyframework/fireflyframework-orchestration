@@ -137,7 +137,14 @@ public final class ArgumentResolver {
                 continue;
             }
 
-            // 10. Implicit input (first unannotated non-context parameter)
+            // 10. @CorrelationId
+            var corrIdAnn = p.getAnnotation(CorrelationId.class);
+            if (corrIdAnn != null) {
+                resolvers[i] = wrapRequired(p, method, (in, ctx) -> ctx.getCorrelationId());
+                continue;
+            }
+
+            // 11. Implicit input (first unannotated non-context parameter)
             if (!implicitUsed) {
                 resolvers[i] = wrapRequired(p, method, (in, ctx) -> in);
                 implicitUsed = true;
@@ -145,7 +152,7 @@ public final class ArgumentResolver {
                 throw new IllegalStateException(
                         "Unresolvable parameter '" + p.getName() + "' at position " + i +
                         " in method " + method.getName() +
-                        ". Use @Input/@FromStep/@FromTry/@FromCompensationResult/@CompensationError/@Header/@Headers/@Variable/@Variables or ExecutionContext.");
+                        ". Use @Input/@FromStep/@FromTry/@FromCompensationResult/@CompensationError/@Header/@Headers/@Variable/@Variables/@CorrelationId or ExecutionContext.");
             }
         }
         return resolvers;

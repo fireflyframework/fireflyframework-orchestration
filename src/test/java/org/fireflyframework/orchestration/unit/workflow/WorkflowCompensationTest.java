@@ -22,7 +22,6 @@ import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.core.event.NoOpEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.RetryPolicy;
-import org.fireflyframework.orchestration.core.model.StepTriggerMode;
 import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.InMemoryPersistenceProvider;
@@ -141,7 +140,7 @@ class WorkflowCompensationTest {
                                             Object bean, String methodName) throws Exception {
         return new WorkflowStepDefinition(
                 stepId, stepId, "", dependsOn, 0,
-                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY,
+                "", 5000, RetryPolicy.NO_RETRY,
                 "", false, compensatable, compensationMethod,
                 bean, bean.getClass().getMethod(methodName, Map.class),
                 null, 0, 0, null);
@@ -254,19 +253,19 @@ class WorkflowCompensationTest {
         var def = workflowDef("comp-fail-wf", List.of(
                 new WorkflowStepDefinition(
                         "stepA", "stepA", "", List.of(), 0,
-                        StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY,
+                        "", 5000, RetryPolicy.NO_RETRY,
                         "", false, true, "compensateA",
                         bean, bean.getClass().getMethod("stepA", Map.class),
                         null, 0, 0, null),
                 new WorkflowStepDefinition(
                         "stepB", "stepB", "", List.of("stepA"), 0,
-                        StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY,
+                        "", 5000, RetryPolicy.NO_RETRY,
                         "", false, true, "compensateB",
                         bean, bean.getClass().getMethod("stepB", Map.class),
                         null, 0, 0, null),
                 new WorkflowStepDefinition(
                         "stepC", "stepC", "", List.of("stepB"), 0,
-                        StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY,
+                        "", 5000, RetryPolicy.NO_RETRY,
                         "", false, false, "",
                         bean, bean.getClass().getMethod("stepC", Map.class),
                         null, 0, 0, null)));

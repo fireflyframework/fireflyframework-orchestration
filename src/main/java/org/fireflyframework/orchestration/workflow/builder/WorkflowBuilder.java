@@ -17,7 +17,6 @@
 package org.fireflyframework.orchestration.workflow.builder;
 
 import org.fireflyframework.orchestration.core.model.RetryPolicy;
-import org.fireflyframework.orchestration.core.model.StepTriggerMode;
 import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowDefinition;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowStepDefinition;
@@ -111,6 +110,9 @@ public class WorkflowBuilder {
         private String waitForTimerId;
         private String outputEventType = "";
         private String condition = "";
+        private boolean async = false;
+        private boolean compensatable = false;
+        private String compensationMethod = "";
 
         StepBuilder(WorkflowBuilder parent, String stepId) {
             this.parent = parent;
@@ -175,6 +177,17 @@ public class WorkflowBuilder {
             return this;
         }
 
+        public StepBuilder async(boolean async) {
+            this.async = async;
+            return this;
+        }
+
+        public StepBuilder compensatable(boolean compensatable, String compensationMethod) {
+            this.compensatable = compensatable;
+            this.compensationMethod = compensationMethod != null ? compensationMethod : "";
+            return this;
+        }
+
         public StepBuilder waitForTimer(long delayMs) {
             this.waitForTimerDelayMs = delayMs;
             return this;
@@ -188,8 +201,8 @@ public class WorkflowBuilder {
 
         public WorkflowBuilder add() {
             var stepDef = new WorkflowStepDefinition(stepId, name, description, dependsOn, order,
-                    StepTriggerMode.BOTH, "", outputEventType, timeoutMs, retryPolicy, condition,
-                    false, false, "", bean, method,
+                    outputEventType, timeoutMs, retryPolicy, condition,
+                    async, compensatable, compensationMethod, bean, method,
                     waitForSignal, signalTimeoutMs, waitForTimerDelayMs, waitForTimerId);
             return parent.addStep(stepDef);
         }

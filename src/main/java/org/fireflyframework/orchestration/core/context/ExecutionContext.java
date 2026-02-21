@@ -57,7 +57,6 @@ public class ExecutionContext {
 
     // Topology
     private volatile List<List<String>> topologyLayers;
-    private final Map<String, Set<String>> stepDependencies;
 
     private ExecutionContext(String correlationId, String executionName, ExecutionPattern pattern) {
         this.correlationId = correlationId != null ? correlationId : UUID.randomUUID().toString();
@@ -75,7 +74,6 @@ public class ExecutionContext {
         this.compensationErrors = new ConcurrentHashMap<>();
         this.tryResults = new ConcurrentHashMap<>();
         this.completedCompensatableSteps = new CopyOnWriteArrayList<>();
-        this.stepDependencies = new ConcurrentHashMap<>();
         this.startedAt = Instant.now();
     }
 
@@ -177,11 +175,4 @@ public class ExecutionContext {
         List<List<String>> snapshot = topologyLayers;
         return snapshot != null ? Collections.unmodifiableList(snapshot) : List.of();
     }
-    public void setStepDependencies(Map<String, Set<String>> deps) {
-        this.stepDependencies.clear();
-        if (deps != null) {
-            deps.forEach((k, v) -> this.stepDependencies.put(k, Set.copyOf(v)));
-        }
-    }
-    public Map<String, Set<String>> getStepDependencies() { return Collections.unmodifiableMap(stepDependencies); }
 }

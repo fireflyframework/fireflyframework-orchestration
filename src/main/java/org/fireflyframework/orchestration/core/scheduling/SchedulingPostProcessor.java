@@ -85,7 +85,7 @@ public class SchedulingPostProcessor implements SmartInitializingSingleton {
             if (schedAnns.length == 0) continue;
 
             for (ScheduledSaga schedAnn : schedAnns) {
-                registerSchedule(sagaName, "saga", schedAnn.cron(), schedAnn.fixedDelay(),
+                registerSchedule(sagaName, "saga", schedAnn.cron(), "", schedAnn.fixedDelay(),
                         schedAnn.fixedRate(),
                         () -> sagaEngine.execute(sagaName, StepInputs.empty()).subscribe());
             }
@@ -104,7 +104,7 @@ public class SchedulingPostProcessor implements SmartInitializingSingleton {
             if (schedAnns.length == 0) continue;
 
             for (ScheduledTcc schedAnn : schedAnns) {
-                registerSchedule(tccName, "tcc", schedAnn.cron(), schedAnn.fixedDelay(),
+                registerSchedule(tccName, "tcc", schedAnn.cron(), "", schedAnn.fixedDelay(),
                         schedAnn.fixedRate(),
                         () -> tccEngine.execute(tccName, TccInputs.empty()).subscribe());
             }
@@ -127,8 +127,8 @@ public class SchedulingPostProcessor implements SmartInitializingSingleton {
             for (ScheduledWorkflow schedAnn : schedAnns) {
                 if (!schedAnn.enabled()) continue;
                 Map<String, Object> input = parseInput(schedAnn.input());
-                registerSchedule(workflowId, "workflow", schedAnn.cron(), schedAnn.fixedDelay(),
-                        schedAnn.fixedRate(),
+                registerSchedule(workflowId, "workflow", schedAnn.cron(), schedAnn.zone(),
+                        schedAnn.fixedDelay(), schedAnn.fixedRate(),
                         () -> workflowEngine.startWorkflow(workflowId, input).subscribe());
             }
         }
@@ -148,11 +148,11 @@ public class SchedulingPostProcessor implements SmartInitializingSingleton {
         }
     }
 
-    private void registerSchedule(String name, String type, String cron, long fixedDelay,
-                                  long fixedRate, Runnable task) {
+    private void registerSchedule(String name, String type, String cron, String zone,
+                                  long fixedDelay, long fixedRate, Runnable task) {
         String taskId = type + ":" + name;
         if (cron != null && !cron.isBlank()) {
-            scheduler.scheduleWithCron(taskId + ":cron", task, cron);
+            scheduler.scheduleWithCron(taskId + ":cron", task, cron, zone);
             log.info("[scheduling] Registered cron schedule for {} '{}'", type, name);
         }
         if (fixedRate > 0) {

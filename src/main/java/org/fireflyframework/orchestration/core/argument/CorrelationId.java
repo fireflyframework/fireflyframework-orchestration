@@ -14,24 +14,17 @@
  * limitations under the License.
  */
 
-package org.fireflyframework.orchestration.workflow.annotation;
+package org.fireflyframework.orchestration.core.argument;
 
-import java.lang.annotation.*;
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
 
-@Target(ElementType.METHOD)
+/**
+ * Injects the current execution's correlation ID into a parameter.
+ */
+@Target(ElementType.PARAMETER)
 @Retention(RetentionPolicy.RUNTIME)
-@Documented
-public @interface WorkflowStep {
-    String id() default "";
-    String name() default "";
-    String description() default "";
-    String[] dependsOn() default {};
-    String outputEventType() default "";
-    long timeoutMs() default 0;
-    int maxRetries() default 0;
-    long retryDelayMs() default 1000;
-    String condition() default "";
-    boolean async() default false;
-    boolean compensatable() default false;
-    String compensationMethod() default "";
+public @interface CorrelationId {
 }

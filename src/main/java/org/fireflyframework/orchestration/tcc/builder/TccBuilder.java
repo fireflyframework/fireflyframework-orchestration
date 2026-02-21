@@ -18,6 +18,7 @@ package org.fireflyframework.orchestration.tcc.builder;
 
 import org.fireflyframework.orchestration.core.context.ExecutionContext;
 import org.fireflyframework.orchestration.tcc.registry.TccDefinition;
+import org.fireflyframework.orchestration.tcc.registry.TccEventConfig;
 import org.fireflyframework.orchestration.tcc.registry.TccParticipantDefinition;
 import reactor.core.publisher.Mono;
 
@@ -99,6 +100,7 @@ public class TccBuilder {
         private long cancelBackoffMs = -1;
         private boolean jitter = false;
         private double jitterFactor = 0.0;
+        private TccEventConfig tccEvent;
         private Object handlerBean;
 
         private Participant(String id) {
@@ -119,6 +121,10 @@ public class TccBuilder {
         public Participant cancelBackoffMs(long ms) { this.cancelBackoffMs = ms; return this; }
         public Participant jitter(boolean jitter) { this.jitter = jitter; return this; }
         public Participant jitterFactor(double jitterFactor) { this.jitterFactor = jitterFactor; return this; }
+        public Participant event(String topic, String eventType, String key) {
+            this.tccEvent = new TccEventConfig(topic, eventType, key);
+            return this;
+        }
 
         /**
          * Set all three handlers using a single object with annotated methods.
@@ -200,6 +206,7 @@ public class TccBuilder {
                     confirmMethod, confirmTimeoutMs, confirmRetry, confirmBackoffMs,
                     cancelMethod, cancelTimeoutMs, cancelRetry, cancelBackoffMs,
                     jitter, jitterFactor);
+            pd.tccEvent = this.tccEvent;
 
             if (tcc.participants.putIfAbsent(id, pd) != null) {
                 throw new IllegalStateException("Duplicate participant id '" + id + "' in TCC '" + tcc.name + "'");

@@ -21,6 +21,7 @@ import org.springframework.scheduling.support.CronExpression;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -73,6 +74,37 @@ public class OrchestrationScheduler {
         CronExpression cron = CronExpression.parse(cronExpression);
         scheduleNextCronExecution(taskId, task, cron);
         log.info("[scheduler] Registered cron task '{}' with expression '{}'", taskId, cronExpression);
+    }
+
+    public void scheduleWithCron(String taskId, Runnable task, String cronExpression, String zone) {
+        if (zone == null || zone.isBlank()) {
+            scheduleWithCron(taskId, task, cronExpression);
+            return;
+        }
+        CronExpression cron = CronExpression.parse(cronExpression);
+        ZoneId zoneId = ZoneId.of(zone);
+        scheduleNextCronExecution(taskId, task, cron, zoneId);
+        log.info("[scheduler] Registered cron task '{}' with expression '{}' in zone '{}'", taskId, cronExpression, zone);
+    }
+
+    private void scheduleNextCronExecution(String taskId, Runnable task, CronExpression cron, ZoneId zoneId) {
+        LocalDateTime now = LocalDateTime.now(zoneId);
+        LocalDateTime next = cron.next(now);
+        if (next == null) {
+            log.warn("[scheduler] Cron expression for '{}' has no future execution time", taskId);
+            return;
+        }
+        long delayMs = Duration.between(LocalDateTime.now(), next).toMillis();
+        if (delayMs < 0) delayMs = 0;
+        ScheduledFuture<?> future = executor.schedule(() -> {
+            try {
+                task.run();
+            } catch (Exception e) {
+                log.error("[scheduler] Cron task '{}' failed", taskId, e);
+            }
+            scheduleNextCronExecution(taskId, task, cron, zoneId);
+        }, delayMs, TimeUnit.MILLISECONDS);
+        scheduledTasks.put(taskId, future);
     }
 
     private void scheduleNextCronExecution(String taskId, Runnable task, CronExpression cron) {

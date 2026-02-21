@@ -22,7 +22,6 @@ import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.core.event.NoOpEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.RetryPolicy;
-import org.fireflyframework.orchestration.core.model.StepTriggerMode;
 import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.ExecutionState;
@@ -109,7 +108,7 @@ class WorkflowSignalTimerTest {
         var bean = new SignalStepBean();
         var stepDef = new WorkflowStepDefinition(
                 "approval-step", "Approval Step", "", List.of(), 0,
-                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                "", 5000, RetryPolicy.NO_RETRY, "",
                 false, false, "",
                 bean, SignalStepBean.class.getMethod("approvalStep", Map.class),
                 "approval", 0, 0, null);
@@ -147,7 +146,7 @@ class WorkflowSignalTimerTest {
         long delayMs = 50;
         var stepDef = new WorkflowStepDefinition(
                 "delayed-step", "Delayed Step", "", List.of(), 0,
-                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                "", 5000, RetryPolicy.NO_RETRY, "",
                 false, false, "",
                 bean, TimerStepBean.class.getMethod("delayedStep", Map.class),
                 null, 0, delayMs, null);
@@ -175,7 +174,7 @@ class WorkflowSignalTimerTest {
         var bean = new SignalStepBean();
         var stepDef = new WorkflowStepDefinition(
                 "signal-step", "Signal Step", "", List.of(), 0,
-                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                "", 5000, RetryPolicy.NO_RETRY, "",
                 false, false, "",
                 bean, SignalStepBean.class.getMethod("approvalStep", Map.class),
                 "data-signal", 0, 0, null);
@@ -215,7 +214,7 @@ class WorkflowSignalTimerTest {
         var bean = new SimpleStepBean();
         var stepDef = new WorkflowStepDefinition(
                 "timeout-step", "Timeout Step", "", List.of(), 0,
-                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                "", 5000, RetryPolicy.NO_RETRY, "",
                 false, false, "",
                 bean, SimpleStepBean.class.getMethod("step1", Map.class),
                 "never-arrives", 50, 0, null);  // 50ms signal timeout
@@ -238,7 +237,7 @@ class WorkflowSignalTimerTest {
         // Verify that WorkflowStepDefinition correctly stores signal/timer data
         var stepDef = new WorkflowStepDefinition(
                 "annotated-step", "Annotated Step", "", List.of(), 0,
-                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                "", 5000, RetryPolicy.NO_RETRY, "",
                 false, false, "", null, null,
                 "approval", 3000, 5000, "my-timer");
 
@@ -250,7 +249,7 @@ class WorkflowSignalTimerTest {
         // Verify defaults when no annotations
         var plainStep = new WorkflowStepDefinition(
                 "plain-step", "Plain Step", "", List.of(), 0,
-                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                "", 5000, RetryPolicy.NO_RETRY, "",
                 false, false, "", null, null,
                 null, 0, 0, null);
 

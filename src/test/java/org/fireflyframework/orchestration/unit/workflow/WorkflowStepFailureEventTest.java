@@ -20,7 +20,9 @@ import org.fireflyframework.orchestration.core.argument.ArgumentResolver;
 import org.fireflyframework.orchestration.core.argument.Input;
 import org.fireflyframework.orchestration.core.event.OrchestrationEvent;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
-import org.fireflyframework.orchestration.core.model.*;
+import org.fireflyframework.orchestration.core.model.ExecutionStatus;
+import org.fireflyframework.orchestration.core.model.RetryPolicy;
+import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.InMemoryPersistenceProvider;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
@@ -67,7 +69,7 @@ class WorkflowStepFailureEventTest {
                 "fail-event-wf", "fail-event-wf", "", "1.0",
                 List.of(new WorkflowStepDefinition(
                         "failStep", "failStep", "", List.of(), 0,
-                        StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY,
+                        "", 5000, RetryPolicy.NO_RETRY,
                         "", false, false, "",
                         bean, bean.getClass().getMethod("failStep", Map.class),
                         null, 0, 0, null)),
@@ -108,7 +110,7 @@ class WorkflowStepFailureEventTest {
                 "no-event-wf", "no-event-wf", "", "1.0",
                 List.of(new WorkflowStepDefinition(
                         "failStep", "failStep", "", List.of(), 0,
-                        StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY,
+                        "", 5000, RetryPolicy.NO_RETRY,
                         "", false, false, "",
                         bean, bean.getClass().getMethod("failStep", Map.class),
                         null, 0, 0, null)),

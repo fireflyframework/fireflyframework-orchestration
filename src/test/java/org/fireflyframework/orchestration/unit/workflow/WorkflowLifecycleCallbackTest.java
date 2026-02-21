@@ -22,7 +22,6 @@ import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.core.event.NoOpEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.RetryPolicy;
-import org.fireflyframework.orchestration.core.model.StepTriggerMode;
 import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.InMemoryPersistenceProvider;
@@ -185,7 +184,7 @@ class WorkflowLifecycleCallbackTest {
 
         var def = new WorkflowDefinition("step-complete-wf", "Step Complete WF", "test", "1.0",
                 List.of(new WorkflowStepDefinition("step1", "Step 1", "", List.of(), 0,
-                        StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                        "", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
                         bean, StepCompleteBean.class.getMethod("step1", Map.class),
                         null, 0, 0, null)),
@@ -211,12 +210,12 @@ class WorkflowLifecycleCallbackTest {
         var def = new WorkflowDefinition("step-filter-wf", "Step Filter WF", "test", "1.0",
                 List.of(
                         new WorkflowStepDefinition("step1", "Step 1", "", List.of(), 0,
-                                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                                "", 5000, RetryPolicy.NO_RETRY, "",
                                 false, false, "",
                                 bean, StepCompleteFilterBean.class.getMethod("step1", Map.class),
                                 null, 0, 0, null),
                         new WorkflowStepDefinition("step2", "Step 2", "", List.of("step1"), 1,
-                                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                                "", 5000, RetryPolicy.NO_RETRY, "",
                                 false, false, "",
                                 bean, StepCompleteFilterBean.class.getMethod("step2", Map.class),
                                 null, 0, 0, null)
@@ -242,7 +241,7 @@ class WorkflowLifecycleCallbackTest {
 
         var def = new WorkflowDefinition("wf-complete-wf", "WF Complete WF", "test", "1.0",
                 List.of(new WorkflowStepDefinition("step1", "Step 1", "", List.of(), 0,
-                        StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                        "", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
                         bean, WorkflowCompleteBean.class.getMethod("step1", Map.class),
                         null, 0, 0, null)),
@@ -266,7 +265,7 @@ class WorkflowLifecycleCallbackTest {
 
         var def = new WorkflowDefinition("wf-error-wf", "WF Error WF", "test", "1.0",
                 List.of(new WorkflowStepDefinition("fail", "Fail Step", "", List.of(), 0,
-                        StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                        "", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
                         bean, WorkflowErrorBean.class.getMethod("failStep", Map.class),
                         null, 0, 0, null)),
@@ -292,7 +291,7 @@ class WorkflowLifecycleCallbackTest {
 
         var def = new WorkflowDefinition("wf-suppress-wf", "WF Suppress WF", "test", "1.0",
                 List.of(new WorkflowStepDefinition("fail", "Fail Step", "", List.of(), 0,
-                        StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                        "", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
                         bean, WorkflowErrorSuppressBean.class.getMethod("failStep", Map.class),
                         null, 0, 0, null)),
@@ -318,7 +317,7 @@ class WorkflowLifecycleCallbackTest {
 
         var def = new WorkflowDefinition("multi-cb-wf", "Multi Callback WF", "test", "1.0",
                 List.of(new WorkflowStepDefinition("step1", "Step 1", "", List.of(), 0,
-                        StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                        "", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
                         bean, MultipleCallbacksBean.class.getMethod("step1", Map.class),
                         null, 0, 0, null)),

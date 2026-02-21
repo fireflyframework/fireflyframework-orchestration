@@ -1,6 +1,6 @@
 # Firefly Orchestration — Complete Reference Guide
 
-> **Version:** 26.02.06 | **Java:** 21+ | **Spring Boot:** 3.x | **Reactor:** 3.x
+> **Version:** 26.02.06 | **Java:** 25+ | **Spring Boot:** 3.x | **Reactor:** 3.x
 
 This guide covers every aspect of the Firefly Orchestration module — from first principles through advanced patterns. It serves as both a learning resource and an API reference.
 

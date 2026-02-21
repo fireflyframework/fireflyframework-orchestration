@@ -22,7 +22,6 @@ import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.core.event.NoOpEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.RetryPolicy;
-import org.fireflyframework.orchestration.core.model.StepTriggerMode;
 import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.InMemoryPersistenceProvider;
@@ -109,7 +108,7 @@ class SuppressErrorLogicTest {
         var testSteps = new FailWithRuntimeSteps();
         var def = new WorkflowDefinition("suppress-test-1", "Suppress Test 1", "test", "1.0",
                 List.of(new WorkflowStepDefinition("fail", "Fail Step", "", List.of(), 0,
-                        StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                        "", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
                         testSteps, FailWithRuntimeSteps.class.getMethod("failStep", Map.class),
                         null, 0, 0, null)),
@@ -129,7 +128,7 @@ class SuppressErrorLogicTest {
         var testSteps = new MatchingSuppressSteps();
         var def = new WorkflowDefinition("suppress-test-2", "Suppress Test 2", "test", "1.0",
                 List.of(new WorkflowStepDefinition("fail", "Fail Step", "", List.of(), 0,
-                        StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                        "", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
                         testSteps, MatchingSuppressSteps.class.getMethod("failStep", Map.class),
                         null, 0, 0, null)),
@@ -149,7 +148,7 @@ class SuppressErrorLogicTest {
         var testSteps = new NonMatchingStepIdSuppressSteps();
         var def = new WorkflowDefinition("suppress-test-3", "Suppress Test 3", "test", "1.0",
                 List.of(new WorkflowStepDefinition("fail", "Fail Step", "", List.of(), 0,
-                        StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                        "", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
                         testSteps, NonMatchingStepIdSuppressSteps.class.getMethod("failStep", Map.class),
                         null, 0, 0, null)),

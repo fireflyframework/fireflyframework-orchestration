@@ -21,7 +21,6 @@ import org.fireflyframework.orchestration.core.argument.Input;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.RetryPolicy;
-import org.fireflyframework.orchestration.core.model.StepTriggerMode;
 import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.InMemoryPersistenceProvider;
@@ -77,12 +76,12 @@ class WorkflowEngineTest {
         return new WorkflowDefinition("simple-wf", "Simple Workflow", "test", "1.0",
                 List.of(
                         new WorkflowStepDefinition("step1", "Step 1", "", List.of(), 0,
-                                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                                "", 5000, RetryPolicy.NO_RETRY, "",
                                 false, false, "",
                                 testSteps, TestSteps.class.getMethod("step1", Map.class),
                                 null, 0, 0, null),
                         new WorkflowStepDefinition("step2", "Step 2", "", List.of("step1"), 1,
-                                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                                "", 5000, RetryPolicy.NO_RETRY, "",
                                 false, false, "",
                                 testSteps, TestSteps.class.getMethod("step2", Map.class),
                                 null, 0, 0, null)
@@ -109,7 +108,7 @@ class WorkflowEngineTest {
         var testSteps = new TestSteps();
         var def = new WorkflowDefinition("failing-wf", "Failing Workflow", "test", "1.0",
                 List.of(new WorkflowStepDefinition("fail", "Fail Step", "", List.of(), 0,
-                        StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                        "", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
                         testSteps, TestSteps.class.getMethod("failStep", Map.class),
                         null, 0, 0, null)),

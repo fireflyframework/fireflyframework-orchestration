@@ -19,7 +19,6 @@ package org.fireflyframework.orchestration.workflow.registry;
 import org.fireflyframework.orchestration.core.exception.DuplicateDefinitionException;
 import org.fireflyframework.orchestration.core.exception.ExecutionNotFoundException;
 import org.fireflyframework.orchestration.core.model.RetryPolicy;
-import org.fireflyframework.orchestration.core.model.StepTriggerMode;
 import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.core.topology.TopologyBuilder;
 import org.fireflyframework.orchestration.workflow.annotation.*;
@@ -137,8 +136,8 @@ public class WorkflowRegistry {
 
                 WorkflowStepDefinition stepDef = new WorkflowStepDefinition(
                         stepId, stepName, stepAnn.description(),
-                        List.of(stepAnn.dependsOn()), stepAnn.order(),
-                        stepAnn.triggerMode(), stepAnn.inputEventType(), stepAnn.outputEventType(),
+                        List.of(stepAnn.dependsOn()), 0,
+                        stepAnn.outputEventType(),
                         stepAnn.timeoutMs(), retryPolicy, stepAnn.condition(),
                         stepAnn.async(), stepAnn.compensatable(), stepAnn.compensationMethod(),
                         bean, invokeMethod,
@@ -183,12 +182,12 @@ public class WorkflowRegistry {
     private List<Method> findAnnotatedMethods(Class<?> clazz, Class<? extends Annotation> ann) {
         return Arrays.stream(clazz.getDeclaredMethods())
                 .filter(m -> m.isAnnotationPresent(ann))
-                .sorted(Comparator.comparingInt(m -> {
+                .sorted(Comparator.comparingInt((Method m) -> {
                     if (ann == OnStepComplete.class) return m.getAnnotation(OnStepComplete.class).priority();
                     if (ann == OnWorkflowComplete.class) return m.getAnnotation(OnWorkflowComplete.class).priority();
                     if (ann == OnWorkflowError.class) return m.getAnnotation(OnWorkflowError.class).priority();
                     return 0;
-                }))
+                }).reversed())
                 .toList();
     }
 

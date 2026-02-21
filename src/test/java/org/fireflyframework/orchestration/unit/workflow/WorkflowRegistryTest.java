@@ -19,7 +19,6 @@ package org.fireflyframework.orchestration.unit.workflow;
 import org.fireflyframework.orchestration.core.exception.DuplicateDefinitionException;
 import org.fireflyframework.orchestration.core.exception.ExecutionNotFoundException;
 import org.fireflyframework.orchestration.core.model.RetryPolicy;
-import org.fireflyframework.orchestration.core.model.StepTriggerMode;
 import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.workflow.annotation.*;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowDefinition;
@@ -105,7 +104,7 @@ class WorkflowRegistryTest {
         var registry = new WorkflowRegistry();
         var step = new WorkflowStepDefinition(
                 "s1", "Step 1", "", List.of(), 1,
-                StepTriggerMode.BOTH, "", "", 0,
+                "", 0,
                 RetryPolicy.NO_RETRY, "", false, false, "", null, null,
                 null, 0, 0, null);
         var def = new WorkflowDefinition(
@@ -122,7 +121,7 @@ class WorkflowRegistryTest {
         var registry = new WorkflowRegistry();
         var step = new WorkflowStepDefinition(
                 "s1", "Step 1", "", List.of(), 1,
-                StepTriggerMode.BOTH, "", "", 0,
+                "", 0,
                 RetryPolicy.NO_RETRY, "", false, false, "", null, null,
                 null, 0, 0, null);
         var def = new WorkflowDefinition(

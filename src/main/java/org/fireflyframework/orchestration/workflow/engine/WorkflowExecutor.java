@@ -21,6 +21,7 @@ import org.fireflyframework.orchestration.core.event.OrchestrationEvent;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.exception.StepExecutionException;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
+import org.fireflyframework.orchestration.core.model.RetryPolicy;
 import org.fireflyframework.orchestration.core.model.StepStatus;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
@@ -112,6 +113,13 @@ public class WorkflowExecutor {
     private Mono<Void> executeStep(WorkflowDefinition def, ExecutionContext ctx, String stepId) {
         return def.findStep(stepId)
                 .map(stepDef -> {
+                    // Dry-run mode: skip execution, mark SKIPPED
+                    if (ctx.isDryRun()) {
+                        ctx.setStepStatus(stepId, StepStatus.SKIPPED);
+                        events.onStepSkipped(def.workflowId(), ctx.getCorrelationId(), stepId);
+                        return Mono.<Void>empty();
+                    }
+
                     // Skip already-completed steps (for resume scenarios)
                     StepStatus currentStatus = ctx.getStepStatus(stepId);
                     if (currentStatus == StepStatus.DONE) {
@@ -167,10 +175,14 @@ public class WorkflowExecutor {
 
                     Object input = ctx.getVariables();
                     long timeout = stepDef.timeoutMs() > 0 ? stepDef.timeoutMs() : def.timeoutMs();
-                    int retries = stepDef.retryPolicy() != null ? stepDef.retryPolicy().maxAttempts() - 1 : 0;
-                    long backoff = stepDef.retryPolicy() != null ? stepDef.retryPolicy().initialDelay().toMillis() : 1000;
-                    boolean jitter = stepDef.retryPolicy() != null;
-                    double jitterFactor = stepDef.retryPolicy() != null ? stepDef.retryPolicy().jitterFactor() : 0;
+                    RetryPolicy effectiveRetry = stepDef.retryPolicy();
+                    if (effectiveRetry == null || effectiveRetry == RetryPolicy.NO_RETRY) {
+                        effectiveRetry = def.retryPolicy();
+                    }
+                    int retries = effectiveRetry != null ? effectiveRetry.maxAttempts() - 1 : 0;
+                    long backoff = effectiveRetry != null ? effectiveRetry.initialDelay().toMillis() : 1000;
+                    boolean jitter = effectiveRetry != null && effectiveRetry.jitterFactor() > 0;
+                    double jitterFactor = effectiveRetry != null ? effectiveRetry.jitterFactor() : 0;
 
                     // Build the step invocation chain
                     Mono<Object> stepInvocation = preStepSignal

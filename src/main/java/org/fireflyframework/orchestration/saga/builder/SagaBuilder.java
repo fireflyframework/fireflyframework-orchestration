@@ -91,6 +91,7 @@ public class SagaBuilder {
         private Duration compensationBackoff;
         private Duration compensationTimeout;
         private boolean compensationCritical = false;
+        private boolean cpuBound = false;
 
         private Step(String id) {
             this.id = id;
@@ -115,6 +116,7 @@ public class SagaBuilder {
         public Step compensationBackoff(Duration d) { this.compensationBackoff = d; return this; }
         public Step compensationTimeout(Duration d) { this.compensationTimeout = d; return this; }
         public Step compensationCritical(boolean critical) { this.compensationCritical = critical; return this; }
+        public Step cpuBound(boolean cpuBound) { this.cpuBound = cpuBound; return this; }
 
         public Step handler(StepHandler<?, ?> handler) { this.handler = handler; return this; }
 
@@ -160,7 +162,7 @@ public class SagaBuilder {
             }
             SagaStepDefinition sd = new SagaStepDefinition(
                     id, compensateName, dependsOn, retry, backoff, timeout,
-                    idempotencyKey, jitter, jitterFactor, false, null);
+                    idempotencyKey, jitter, jitterFactor, cpuBound, null);
 
             if (this.handler != null && this.compensationFn != null) {
                 StepHandler base = this.handler;

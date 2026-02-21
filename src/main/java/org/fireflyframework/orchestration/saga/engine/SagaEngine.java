@@ -137,6 +137,14 @@ public class SagaEngine {
                         sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, ExecutionStatus.FAILED)))
                 .then(invokeSagaErrorCallbacks(workSaga, ctx, result.getStepErrors()))
                 .then(Mono.defer(() -> {
+                    // Check if any error callback has suppressError=true that matches the error
+                    Throwable error = result.getStepErrors().values().stream().findFirst().orElse(null);
+                    if (error != null && shouldSuppressError(workSaga, error)) {
+                        return persistFinalState(ctx, ExecutionStatus.COMPLETED)
+                                .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                        sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, ExecutionStatus.COMPLETED)))
+                                .then(Mono.just(SagaResult.from(sagaName, ctx, Map.of(), Map.of(), workSaga.steps.keySet())));
+                    }
                     Map<String, Boolean> compensated = extractCompensationFlags(result.getCompletionOrder(), ctx);
                     return Mono.just(SagaResult.from(sagaName, ctx, compensated, result.getStepErrors(), workSaga.steps.keySet()));
                 }));
@@ -338,6 +346,23 @@ public class SagaEngine {
             }
         }
         return Flux.concat(syncInvocations).then();
+    }
+
+    private boolean shouldSuppressError(SagaDefinition saga, Throwable error) {
+        List<Method> methods = saga.onSagaErrorMethods;
+        if (methods == null || methods.isEmpty()) return false;
+
+        for (Method m : methods) {
+            OnSagaError ann = m.getAnnotation(OnSagaError.class);
+            if (ann == null || !ann.suppressError()) continue;
+
+            // If no errorTypes filter, suppress all errors
+            if (ann.errorTypes().length == 0) return true;
+
+            // Check if the error matches any of the specified types
+            if (Arrays.stream(ann.errorTypes()).anyMatch(t -> t.isInstance(error))) return true;
+        }
+        return false;
     }
 
     private Object[] resolveCallbackArgs(Method method, Object... candidates) {

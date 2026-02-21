@@ -245,12 +245,12 @@ class EventWiringIntegrationTest {
         var def = new WorkflowDefinition("callback-wf", "Callback WF", "test", "1.0",
                 List.of(
                         new WorkflowStepDefinition("step1", "Step 1", "", List.of(), 0,
-                                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                                "", 5000, RetryPolicy.NO_RETRY, "",
                                 false, false, "",
                                 bean, CallbackBean.class.getMethod("step1", Map.class),
                                 null, 0, 0, null),
                         new WorkflowStepDefinition("step2", "Step 2", "", List.of("step1"), 1,
-                                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                                "", 5000, RetryPolicy.NO_RETRY, "",
                                 false, false, "",
                                 bean, CallbackBean.class.getMethod("step2", Map.class),
                                 null, 0, 0, null)),
@@ -283,12 +283,12 @@ class EventWiringIntegrationTest {
         var def = new WorkflowDefinition("condition-wf", "Condition WF", "test", "1.0",
                 List.of(
                         new WorkflowStepDefinition("step1", "Step 1", "", List.of(), 0,
-                                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY, "",
+                                "", 5000, RetryPolicy.NO_RETRY, "",
                                 false, false, "",
                                 bean, WorkflowSteps.class.getMethod("step1", Map.class),
                                 null, 0, 0, null),
                         new WorkflowStepDefinition("guarded", "Guarded Step", "", List.of("step1"), 1,
-                                StepTriggerMode.BOTH, "", "", 5000, RetryPolicy.NO_RETRY,
+                                "", 5000, RetryPolicy.NO_RETRY,
                                 "false",  // condition always false — step should be skipped
                                 false, false, "",
                                 bean, WorkflowSteps.class.getMethod("step2", Map.class),
@@ -366,7 +366,7 @@ class EventWiringIntegrationTest {
         // but step has an outputEventType
         var def = new WorkflowDefinition("no-publish-wf", "No Publish WF", "test", "1.0",
                 List.of(new WorkflowStepDefinition("step1", "Step 1", "", List.of(), 0,
-                        StepTriggerMode.BOTH, "", "OrderProcessed", 5000, RetryPolicy.NO_RETRY, "",
+                        "OrderProcessed", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
                         bean, WorkflowSteps.class.getMethod("step1", Map.class),
                         null, 0, 0, null)),
@@ -406,7 +406,7 @@ class EventWiringIntegrationTest {
         // publishEvents=true AND step has an outputEventType
         var def = new WorkflowDefinition("yes-publish-wf", "Yes Publish WF", "test", "1.0",
                 List.of(new WorkflowStepDefinition("step1", "Step 1", "", List.of(), 0,
-                        StepTriggerMode.BOTH, "", "OrderProcessed", 5000, RetryPolicy.NO_RETRY, "",
+                        "OrderProcessed", 5000, RetryPolicy.NO_RETRY, "",
                         false, false, "",
                         bean, WorkflowSteps.class.getMethod("step1", Map.class),
                         null, 0, 0, null)),
