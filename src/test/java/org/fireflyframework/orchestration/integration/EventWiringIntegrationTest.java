@@ -231,7 +231,7 @@ class EventWiringIntegrationTest {
 
     @Test
     void workflow_endToEnd_lifecycleCallbacksFire() throws Exception {
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher, null, null);
+        var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
         var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
@@ -273,7 +273,7 @@ class EventWiringIntegrationTest {
 
     @Test
     void workflow_endToEnd_conditionSkipsStep() throws Exception {
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher, null, null);
+        var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
         var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
@@ -355,7 +355,7 @@ class EventWiringIntegrationTest {
 
     @Test
     void workflow_publishEvents_false_doesNotPublishStepEvents() throws Exception {
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher, null, null);
+        var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
         var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
@@ -396,7 +396,7 @@ class EventWiringIntegrationTest {
 
     @Test
     void workflow_publishEvents_true_publishesStepEvents() throws Exception {
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher, null, null);
+        var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
         var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
@@ -491,7 +491,7 @@ class EventWiringIntegrationTest {
 
     @Test
     void workflowBuilder_publishEventsTrue_endToEnd_publishesStepEvents() throws Exception {
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher, null, null);
+        var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
         var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);

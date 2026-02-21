@@ -18,6 +18,7 @@ package org.fireflyframework.orchestration.unit.workflow;
 
 import org.fireflyframework.orchestration.core.argument.ArgumentResolver;
 import org.fireflyframework.orchestration.core.argument.Input;
+import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.core.context.ExecutionContext;
 import org.fireflyframework.orchestration.core.event.NoOpEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
@@ -55,7 +56,7 @@ class WorkflowConditionAsyncTest {
         registry = new WorkflowRegistry();
         var events = new OrchestrationEvents() {};
         var noOpPublisher = new NoOpEventPublisher();
-        executor = new WorkflowExecutor(new ArgumentResolver(), events, noOpPublisher, null, null);
+        executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, noOpPublisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         engine = new WorkflowEngine(registry, executor, persistence, events, noOpPublisher);
     }

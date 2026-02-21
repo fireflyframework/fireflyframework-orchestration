@@ -18,6 +18,7 @@ package org.fireflyframework.orchestration.unit.workflow;
 
 import org.fireflyframework.orchestration.core.argument.ArgumentResolver;
 import org.fireflyframework.orchestration.core.argument.Input;
+import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.core.event.NoOpEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.RetryPolicy;
@@ -53,7 +54,7 @@ class SuppressErrorLogicTest {
         registry = new WorkflowRegistry();
         var events = new OrchestrationEvents() {};
         var noOpPublisher = new NoOpEventPublisher();
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, noOpPublisher, null, null);
+        var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, noOpPublisher, null, null);
         persistence = new InMemoryPersistenceProvider();
         engine = new WorkflowEngine(registry, executor, persistence, events, noOpPublisher);
     }

@@ -334,7 +334,7 @@ class EventPublishingTest {
 
     @Test
     void workflow_executionStartedAndCompleted_publishesLifecycleEvents() throws Exception {
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher, null, null);
+        var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
         var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
@@ -364,7 +364,7 @@ class EventPublishingTest {
 
     @Test
     void workflow_stepWithOutputEventType_publishesStepEvent() throws Exception {
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher, null, null);
+        var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
         var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
@@ -400,7 +400,7 @@ class EventPublishingTest {
 
     @Test
     void workflow_stepWithBlankOutputEventType_doesNotPublishStepEvent() throws Exception {
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher, null, null);
+        var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
         var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
@@ -430,7 +430,7 @@ class EventPublishingTest {
 
     @Test
     void workflow_failedExecution_publishesCompletedWithFailedStatus() throws Exception {
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, publisher, null, null);
+        var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
         var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);

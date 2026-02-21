@@ -18,6 +18,7 @@ package org.fireflyframework.orchestration.unit.workflow;
 
 import org.fireflyframework.orchestration.core.argument.ArgumentResolver;
 import org.fireflyframework.orchestration.core.argument.Input;
+import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.core.event.NoOpEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.RetryPolicy;
@@ -67,7 +68,7 @@ class WorkflowSignalTimerTest {
         persistence = new InMemoryPersistenceProvider();
         signalService = new SignalService(persistence, events);
         timerService = new TimerService(events);
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, noOpPublisher,
+        var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, noOpPublisher,
                 signalService, timerService);
         engine = new WorkflowEngine(registry, executor, persistence, events, noOpPublisher);
     }

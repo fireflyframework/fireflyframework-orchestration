@@ -16,7 +16,6 @@
 
 package org.fireflyframework.orchestration.workflow.engine;
 
-import org.fireflyframework.orchestration.core.argument.ArgumentResolver;
 import org.fireflyframework.orchestration.core.context.ExecutionContext;
 import org.fireflyframework.orchestration.core.event.OrchestrationEvent;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
@@ -57,10 +56,10 @@ public class WorkflowExecutor {
     private final SignalService signalService;
     private final TimerService timerService;
 
-    public WorkflowExecutor(ArgumentResolver argumentResolver, OrchestrationEvents events,
+    public WorkflowExecutor(StepInvoker stepInvoker, OrchestrationEvents events,
                              OrchestrationEventPublisher eventPublisher,
                              SignalService signalService, TimerService timerService) {
-        this.stepInvoker = new StepInvoker(argumentResolver);
+        this.stepInvoker = Objects.requireNonNull(stepInvoker, "stepInvoker");
         this.events = events;
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
         this.signalService = signalService;

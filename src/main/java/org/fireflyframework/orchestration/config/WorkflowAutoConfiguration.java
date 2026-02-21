@@ -16,8 +16,8 @@
 
 package org.fireflyframework.orchestration.config;
 
-import org.fireflyframework.orchestration.core.argument.ArgumentResolver;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
+import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.workflow.child.ChildWorkflowService;
@@ -59,12 +59,12 @@ public class WorkflowAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public WorkflowExecutor workflowExecutor(ArgumentResolver argumentResolver,
+    public WorkflowExecutor workflowExecutor(StepInvoker stepInvoker,
                                               OrchestrationEvents events,
                                               OrchestrationEventPublisher eventPublisher,
                                               SignalService signalService,
                                               TimerService timerService) {
-        return new WorkflowExecutor(argumentResolver, events, eventPublisher, signalService, timerService);
+        return new WorkflowExecutor(stepInvoker, events, eventPublisher, signalService, timerService);
     }
 
     @Bean

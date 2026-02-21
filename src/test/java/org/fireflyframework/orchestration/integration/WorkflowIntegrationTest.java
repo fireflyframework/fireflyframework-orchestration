@@ -18,6 +18,7 @@ package org.fireflyframework.orchestration.integration;
 
 import org.fireflyframework.orchestration.core.argument.ArgumentResolver;
 import org.fireflyframework.orchestration.core.builder.OrchestrationBuilder;
+import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.InMemoryPersistenceProvider;
 import org.fireflyframework.orchestration.workflow.engine.WorkflowEngine;
@@ -47,7 +48,7 @@ class WorkflowIntegrationTest {
         persistence = new InMemoryPersistenceProvider();
         registry = new WorkflowRegistry();
         var noOpPublisher = new org.fireflyframework.orchestration.core.event.NoOpEventPublisher();
-        var executor = new WorkflowExecutor(new ArgumentResolver(), events, noOpPublisher, null, null);
+        var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, noOpPublisher, null, null);
         engine = new WorkflowEngine(registry, executor, persistence, events, noOpPublisher);
     }
 
