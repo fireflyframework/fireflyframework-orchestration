@@ -164,24 +164,24 @@ The module is organized into four layers. Your application defines orchestration
                   |  register                       |  execute
 +-----------------v---------------------------------v-----------------+
 |                          Engine Layer                               |
-|   WorkflowEngine        SagaEngine            TccEngine             |
-|   WorkflowExecutor   SagaExecutionOrchestrator TccExecutionOrchestrator|
-|                          SagaCompensator                            |
+|   WorkflowEngine         SagaEngine           TccEngine             |
+|   WorkflowExecutor       SagaCompensator                            |
+|   SagaExecutionOrchestrator   TccExecutionOrchestrator              |
 +---------+-----------------------------+--------------------+--------+
           |                             |                    |
 +---------v-----------------------------v--------------------v--------+
 |                           Core Layer                                |
-|   ExecutionContext     StepInvoker     ArgumentResolver              |
-|   TopologyBuilder      RetryPolicy    OrchestrationEvents           |
-|   ExecutionState       DeadLetterService    RecoveryService         |
-|   EventGateway         OrchestrationScheduler                       |
-+---------+-------------------------------------------+--------+------+
-          |                                           |        |
-+---------v------------------+   +--------------------v-+  +---v------+
-|    Persistence Layer       |   |  Observability Layer  |  |  Events  |
-|  InMemory (default)        |   |  LoggerEvents         |  |  Gateway |
-|  Redis / Cache / ES        |   |  Metrics / Tracing    |  |  Publish |
-+----------------------------+   +-----------------------+  +----------+
+|   ExecutionContext    StepInvoker     ArgumentResolver              |
+|   TopologyBuilder     RetryPolicy    OrchestrationEvents            |
+|   ExecutionState      DeadLetterService    RecoveryService          |
+|   EventGateway        OrchestrationScheduler                        |
++---------+--------------------------------+-------------------+------+
+          |                                |                   |
++---------v-----------------+   +----------v-----------+  +----v------+
+|   Persistence Layer       |   | Observability Layer  |  |  Events   |
+|  InMemory (default)       |   | LoggerEvents         |  |  Gateway  |
+|  Redis / Cache / ES       |   | Metrics / Tracing    |  |  Publish  |
++---------------------------+   +----------------------+  +-----------+
 ```
 
 ### Layer Components
