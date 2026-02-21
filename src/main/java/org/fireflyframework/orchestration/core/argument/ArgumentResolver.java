@@ -17,6 +17,7 @@
 package org.fireflyframework.orchestration.core.argument;
 
 import org.fireflyframework.orchestration.core.context.ExecutionContext;
+import org.fireflyframework.orchestration.tcc.annotation.FromTry;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
@@ -94,6 +95,20 @@ public final class ArgumentResolver {
                 continue;
             }
 
+            // 5b. @FromTry — inject try-phase result for TCC confirm/cancel methods
+            var fromTryAnn = p.getAnnotation(FromTry.class);
+            if (fromTryAnn != null) {
+                String ref = fromTryAnn.value();
+                if (ref == null || ref.isBlank()) {
+                    // No specific participant referenced — use raw input (the try result)
+                    resolvers[i] = wrapRequired(p, method, (in, ctx) -> in);
+                } else {
+                    // Named participant — look up try result from context
+                    resolvers[i] = wrapRequired(p, method, (in, ctx) -> ctx.getTryResult(ref));
+                }
+                continue;
+            }
+
             // 6. @Header
             var headerAnn = p.getAnnotation(Header.class);
             if (headerAnn != null) {
@@ -130,7 +145,7 @@ public final class ArgumentResolver {
                 throw new IllegalStateException(
                         "Unresolvable parameter '" + p.getName() + "' at position " + i +
                         " in method " + method.getName() +
-                        ". Use @Input/@FromStep/@FromCompensationResult/@CompensationError/@Header/@Headers/@Variable/@Variables or ExecutionContext.");
+                        ". Use @Input/@FromStep/@FromTry/@FromCompensationResult/@CompensationError/@Header/@Headers/@Variable/@Variables or ExecutionContext.");
             }
         }
         return resolvers;

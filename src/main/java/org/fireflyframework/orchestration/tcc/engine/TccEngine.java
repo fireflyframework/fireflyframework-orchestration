@@ -85,12 +85,13 @@ public class TccEngine {
     public Mono<TccResult> execute(TccDefinition tcc, TccInputs inputs, ExecutionContext ctx) {
         Objects.requireNonNull(tcc, "tcc");
         final ExecutionContext finalCtx = ctx != null ? ctx : ExecutionContext.forTcc(null, tcc.name);
+        Map<String, Object> inputMap = inputs != null ? inputs.asMap() : Map.of();
 
         return persistInitialState(tcc, finalCtx)
                 .then(eventPublisher.publish(OrchestrationEvent.executionStarted(
                         tcc.name, finalCtx.getCorrelationId(), ExecutionPattern.TCC)))
                 .then(orchestrator.orchestrate(tcc, inputs, finalCtx))
-                .flatMap(result -> handleResult(result, tcc))
+                .flatMap(result -> handleResult(result, tcc, inputMap))
                 .onErrorResume(err -> {
                     log.error("[tcc] Unexpected error executing TCC '{}': {}", tcc.name, err.getMessage(), err);
                     return persistFinalState(finalCtx, ExecutionStatus.FAILED)
@@ -102,7 +103,7 @@ public class TccEngine {
     }
 
     private Mono<TccResult> handleResult(TccExecutionOrchestrator.OrchestratorResult result,
-                                          TccDefinition tcc) {
+                                          TccDefinition tcc, Map<String, Object> inputMap) {
         ExecutionContext ctx = result.getContext();
         long durationMs = Duration.between(ctx.getStartedAt(), Instant.now()).toMillis();
         boolean success = result.getStatus() == TccResult.Status.CONFIRMED;
@@ -130,7 +131,7 @@ public class TccEngine {
 
         Mono<Void> persist = persistFinalState(ctx, finalStatus);
         // Only DLQ truly failed transactions — CANCELED is controlled rollback, not a failure
-        Mono<Void> dlq = (finalStatus == ExecutionStatus.FAILED) ? saveToDlq(tcc.name, ctx, result, finalStatus) : Mono.empty();
+        Mono<Void> dlq = (finalStatus == ExecutionStatus.FAILED) ? saveToDlq(tcc.name, ctx, result, finalStatus, inputMap) : Mono.empty();
         Mono<Void> publishCompleted = eventPublisher.publish(OrchestrationEvent.executionCompleted(
                 tcc.name, ctx.getCorrelationId(), ExecutionPattern.TCC, finalStatus));
 
@@ -139,12 +140,12 @@ public class TccEngine {
 
     private Mono<Void> saveToDlq(String tccName, ExecutionContext ctx,
                                   TccExecutionOrchestrator.OrchestratorResult result,
-                                  ExecutionStatus status) {
+                                  ExecutionStatus status, Map<String, Object> inputs) {
         if (dlqService == null || result.getFailureError() == null) return Mono.empty();
         String failedId = result.getFailedParticipantId() != null ? result.getFailedParticipantId() : "unknown";
         DeadLetterEntry entry = DeadLetterEntry.create(
                 tccName, ctx.getCorrelationId(), ExecutionPattern.TCC, failedId,
-                status, result.getFailureError(), Map.of());
+                status, result.getFailureError(), inputs != null ? inputs : Map.of());
         return dlqService.deadLetter(entry)
                 .onErrorResume(err -> {
                     log.warn("[tcc] Failed to save to DLQ: {}", ctx.getCorrelationId(), err);

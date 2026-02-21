@@ -126,7 +126,7 @@ public class SagaEngine {
         Map<String, Object> materializedInputs = materializeInputs(inputs, overrideInputs, ctx);
         return compensator.compensate(sagaName, workSaga, result.getCompletionOrder(), materializedInputs, ctx)
                 .then(persistFinalState(ctx, ExecutionStatus.FAILED))
-                .then(saveToDlq(sagaName, ctx, result))
+                .then(saveToDlq(sagaName, ctx, result, materializedInputs))
                 .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                         sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, ExecutionStatus.FAILED)))
                 .then(Mono.defer(() -> {
@@ -136,7 +136,8 @@ public class SagaEngine {
     }
 
     private Mono<Void> saveToDlq(String sagaName, ExecutionContext ctx,
-                                  SagaExecutionOrchestrator.ExecutionResult result) {
+                                  SagaExecutionOrchestrator.ExecutionResult result,
+                                  Map<String, Object> inputs) {
         if (dlqService == null) return Mono.empty();
         var firstEntry = result.getStepErrors().entrySet().stream().findFirst().orElse(null);
         if (firstEntry == null) return Mono.empty();
@@ -144,7 +145,7 @@ public class SagaEngine {
         Throwable firstError = firstEntry.getValue();
         DeadLetterEntry entry = DeadLetterEntry.create(
                 sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, failedStep,
-                ExecutionStatus.FAILED, firstError, Map.of());
+                ExecutionStatus.FAILED, firstError, inputs != null ? inputs : Map.of());
         return dlqService.deadLetter(entry)
                 .onErrorResume(err -> {
                     log.warn("[orchestration] Failed to save to DLQ: {}", ctx.getCorrelationId(), err);
