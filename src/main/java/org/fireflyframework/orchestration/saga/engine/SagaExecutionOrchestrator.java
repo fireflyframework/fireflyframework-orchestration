@@ -21,8 +21,10 @@ import org.fireflyframework.orchestration.core.context.ExecutionContext;
 import org.fireflyframework.orchestration.core.event.OrchestrationEvent;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
+import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.StepStatus;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
+import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.core.topology.TopologyBuilder;
 import org.fireflyframework.orchestration.saga.registry.SagaDefinition;
@@ -49,12 +51,20 @@ public class SagaExecutionOrchestrator {
     private final StepInvoker stepInvoker;
     private final OrchestrationEvents events;
     private final OrchestrationEventPublisher eventPublisher;
+    private final ExecutionPersistenceProvider persistence;
 
     public SagaExecutionOrchestrator(StepInvoker stepInvoker, OrchestrationEvents events,
                                       OrchestrationEventPublisher eventPublisher) {
+        this(stepInvoker, events, eventPublisher, null);
+    }
+
+    public SagaExecutionOrchestrator(StepInvoker stepInvoker, OrchestrationEvents events,
+                                      OrchestrationEventPublisher eventPublisher,
+                                      ExecutionPersistenceProvider persistence) {
         this.stepInvoker = Objects.requireNonNull(stepInvoker, "stepInvoker");
         this.events = Objects.requireNonNull(events, "events");
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
+        this.persistence = persistence;
     }
 
     public Mono<ExecutionResult> orchestrate(SagaDefinition saga, StepInputs inputs,
@@ -147,11 +157,15 @@ public class SagaExecutionOrchestrator {
         return execution
                 .flatMap(result -> {
                     handleStepSuccess(saga, stepDef, stepId, result, ctx, start);
-                    return publishStepEvent(saga, stepDef, stepId, result, ctx).thenReturn(result);
+                    return saveCheckpoint(saga.name, ctx)
+                            .then(publishStepEvent(saga, stepDef, stepId, result, ctx))
+                            .thenReturn(result);
                 })
                 .switchIfEmpty(Mono.defer(() -> {
                     handleStepSuccess(saga, stepDef, stepId, null, ctx, start);
-                    return publishStepEvent(saga, stepDef, stepId, null, ctx).then(Mono.empty());
+                    return saveCheckpoint(saga.name, ctx)
+                            .then(publishStepEvent(saga, stepDef, stepId, null, ctx))
+                            .then(Mono.empty());
                 }))
                 .then()
                 .doOnError(err -> handleStepError(saga, stepId, err, ctx, start));
@@ -208,6 +222,26 @@ public class SagaExecutionOrchestrator {
                 .withType(sec.type())
                 .withKey(sec.key());
         return eventPublisher.publish(event);
+    }
+
+    private Mono<Void> saveCheckpoint(String sagaName, ExecutionContext ctx) {
+        if (persistence == null) return Mono.empty();
+        var checkpoint = new org.fireflyframework.orchestration.core.persistence.ExecutionState(
+                ctx.getCorrelationId(), sagaName, ExecutionPattern.SAGA,
+                ExecutionStatus.RUNNING,
+                new HashMap<>(ctx.getStepResults()),
+                new HashMap<>(ctx.getStepStatuses()),
+                Map.of(), Map.of(),
+                new HashMap<>(ctx.getVariables()),
+                new HashMap<>(ctx.getHeaders()),
+                Set.copyOf(ctx.getIdempotencyKeys()),
+                ctx.getTopologyLayers(),
+                null, ctx.getStartedAt(), Instant.now());
+        return persistence.save(checkpoint)
+                .onErrorResume(err -> {
+                    log.warn("[orchestration] Failed to save saga checkpoint: {}", ctx.getCorrelationId(), err);
+                    return Mono.empty();
+                });
     }
 
     private Object resolveStepInput(ExecutionState state, String stepId) {

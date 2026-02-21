@@ -57,8 +57,9 @@ public class SagaAutoConfiguration {
     @ConditionalOnMissingBean
     public SagaExecutionOrchestrator sagaExecutionOrchestrator(StepInvoker stepInvoker,
                                                                 OrchestrationEvents events,
-                                                                OrchestrationEventPublisher eventPublisher) {
-        return new SagaExecutionOrchestrator(stepInvoker, events, eventPublisher);
+                                                                OrchestrationEventPublisher eventPublisher,
+                                                                ExecutionPersistenceProvider persistence) {
+        return new SagaExecutionOrchestrator(stepInvoker, events, eventPublisher, persistence);
     }
 
     @Bean

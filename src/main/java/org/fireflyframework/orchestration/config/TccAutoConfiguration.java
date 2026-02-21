@@ -53,8 +53,9 @@ public class TccAutoConfiguration {
     @ConditionalOnMissingBean
     public TccExecutionOrchestrator tccExecutionOrchestrator(StepInvoker stepInvoker,
                                                               OrchestrationEvents events,
-                                                              OrchestrationEventPublisher eventPublisher) {
-        return new TccExecutionOrchestrator(stepInvoker, events, eventPublisher);
+                                                              OrchestrationEventPublisher eventPublisher,
+                                                              ExecutionPersistenceProvider persistence) {
+        return new TccExecutionOrchestrator(stepInvoker, events, eventPublisher, persistence);
     }
 
     @Bean

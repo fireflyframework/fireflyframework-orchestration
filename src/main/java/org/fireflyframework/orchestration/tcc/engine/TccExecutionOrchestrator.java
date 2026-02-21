@@ -21,8 +21,10 @@ import org.fireflyframework.orchestration.core.context.TccPhase;
 import org.fireflyframework.orchestration.core.event.OrchestrationEvent;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
+import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.StepStatus;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
+import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.tcc.registry.TccDefinition;
 import org.fireflyframework.orchestration.tcc.registry.TccEventConfig;
@@ -31,6 +33,7 @@ import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -50,12 +53,20 @@ public class TccExecutionOrchestrator {
     private final StepInvoker stepInvoker;
     private final OrchestrationEvents events;
     private final OrchestrationEventPublisher eventPublisher;
+    private final ExecutionPersistenceProvider persistence;
 
     public TccExecutionOrchestrator(StepInvoker stepInvoker, OrchestrationEvents events,
                                      OrchestrationEventPublisher eventPublisher) {
+        this(stepInvoker, events, eventPublisher, null);
+    }
+
+    public TccExecutionOrchestrator(StepInvoker stepInvoker, OrchestrationEvents events,
+                                     OrchestrationEventPublisher eventPublisher,
+                                     ExecutionPersistenceProvider persistence) {
         this.stepInvoker = Objects.requireNonNull(stepInvoker, "stepInvoker");
         this.events = Objects.requireNonNull(events, "events");
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
+        this.persistence = persistence;
     }
 
     public Mono<OrchestratorResult> orchestrate(TccDefinition tccDef, TccInputs inputs, ExecutionContext ctx) {
@@ -66,7 +77,8 @@ public class TccExecutionOrchestrator {
         return executeTryPhase(state)
                 .flatMap(trySuccess -> {
                     if (trySuccess) {
-                        return executeConfirmPhase(state);
+                        return saveCheckpoint(state, ExecutionStatus.CONFIRMING)
+                                .then(executeConfirmPhase(state));
                     } else {
                         return executeCancelPhase(state);
                     }
@@ -177,7 +189,8 @@ public class TccExecutionOrchestrator {
                     if (allConfirmed) {
                         events.onPhaseCompleted(state.tccDef.name, state.ctx.getCorrelationId(),
                                 TccPhase.CONFIRM, phaseDuration);
-                        return Mono.just(OrchestratorResult.confirmed(state));
+                        return saveCheckpoint(state, ExecutionStatus.CONFIRMED)
+                                .then(Mono.just(OrchestratorResult.confirmed(state)));
                     } else {
                         events.onPhaseFailed(state.tccDef.name, state.ctx.getCorrelationId(),
                                 TccPhase.CONFIRM, state.failureError);
@@ -310,6 +323,29 @@ public class TccExecutionOrchestrator {
                 .withType(tec.eventType())
                 .withKey(tec.key());
         return eventPublisher.publish(event);
+    }
+
+    // --- Persistence Checkpoints ---
+
+    private Mono<Void> saveCheckpoint(OrchestratorState state, ExecutionStatus status) {
+        if (persistence == null) return Mono.empty();
+        ExecutionContext ctx = state.ctx;
+        var checkpoint = new org.fireflyframework.orchestration.core.persistence.ExecutionState(
+                ctx.getCorrelationId(), state.tccDef.name, ExecutionPattern.TCC,
+                status,
+                new HashMap<>(ctx.getStepResults()),
+                new HashMap<>(ctx.getStepStatuses()),
+                Map.of(), Map.of(),
+                new HashMap<>(ctx.getVariables()),
+                new HashMap<>(ctx.getHeaders()),
+                Set.copyOf(ctx.getIdempotencyKeys()),
+                List.of(),
+                null, ctx.getStartedAt(), Instant.now());
+        return persistence.save(checkpoint)
+                .onErrorResume(err -> {
+                    log.warn("[tcc] Failed to save TCC checkpoint: {}", ctx.getCorrelationId(), err);
+                    return Mono.empty();
+                });
     }
 
     // --- Internal State ---
