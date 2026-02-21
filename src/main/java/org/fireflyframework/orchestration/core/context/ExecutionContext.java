@@ -22,6 +22,7 @@ import org.fireflyframework.orchestration.core.model.StepStatus;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class ExecutionContext {
 
@@ -51,6 +52,9 @@ public class ExecutionContext {
     private volatile TccPhase currentPhase;
     private final Map<String, Object> tryResults;
 
+    // Workflow compensation tracking (completed compensatable steps in execution order)
+    private final List<String> completedCompensatableSteps;
+
     // Topology
     private volatile List<List<String>> topologyLayers;
     private final Map<String, Set<String>> stepDependencies;
@@ -70,6 +74,7 @@ public class ExecutionContext {
         this.compensationResults = new ConcurrentHashMap<>();
         this.compensationErrors = new ConcurrentHashMap<>();
         this.tryResults = new ConcurrentHashMap<>();
+        this.completedCompensatableSteps = new CopyOnWriteArrayList<>();
         this.stepDependencies = new ConcurrentHashMap<>();
         this.startedAt = Instant.now();
     }
@@ -148,6 +153,10 @@ public class ExecutionContext {
 
     // Workflow-specific
     public boolean isDryRun() { return dryRun; }
+
+    // Workflow compensation tracking
+    public void addCompensatableStep(String stepId) { completedCompensatableSteps.add(stepId); }
+    public List<String> getCompletedCompensatableSteps() { return List.copyOf(completedCompensatableSteps); }
 
     // TCC-specific
     public TccPhase getCurrentPhase() { return currentPhase; }

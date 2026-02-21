@@ -29,6 +29,7 @@ import org.fireflyframework.orchestration.workflow.annotation.OnWorkflowComplete
 import org.fireflyframework.orchestration.workflow.annotation.OnWorkflowError;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowDefinition;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowRegistry;
+import org.fireflyframework.orchestration.workflow.registry.WorkflowStepDefinition;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -94,6 +95,7 @@ public class WorkflowEngine {
                                 .thenReturn(completedState);
                     })
                     .onErrorResume(error -> invokeWorkflowErrorCallbacks(def, ctx, error)
+                            .then(compensateWorkflow(def, ctx))
                             .then(Mono.defer(() -> {
                                 boolean suppress = def.onWorkflowErrorMethods() != null
                                         && def.onWorkflowErrorMethods().stream()
@@ -197,6 +199,101 @@ public class WorkflowEngine {
 
     public void registerWorkflow(WorkflowDefinition definition) {
         registry.register(definition);
+    }
+
+    /**
+     * Run compensation methods for all previously completed compensatable steps in reverse order.
+     * Compensation errors are logged and swallowed so they do not prevent the workflow from reaching
+     * its final FAILED state or abort compensation of remaining steps.
+     */
+    private Mono<Void> compensateWorkflow(WorkflowDefinition def, ExecutionContext ctx) {
+        List<String> compensatableSteps = ctx.getCompletedCompensatableSteps();
+        if (compensatableSteps.isEmpty()) {
+            return Mono.empty();
+        }
+
+        // Reverse order: last completed step compensated first (Saga-style)
+        List<String> reversed = new ArrayList<>(compensatableSteps);
+        Collections.reverse(reversed);
+
+        return Flux.fromIterable(reversed)
+                .concatMap(stepId -> {
+                    WorkflowStepDefinition stepDef = def.findStep(stepId).orElse(null);
+                    if (stepDef == null || stepDef.compensationMethod() == null
+                            || stepDef.compensationMethod().isBlank()) {
+                        return Mono.empty();
+                    }
+
+                    Object bean = stepDef.bean();
+                    String compMethodName = stepDef.compensationMethod();
+
+                    try {
+                        // Find the compensation method by name on the bean class
+                        Method compMethod = findCompensationMethod(bean.getClass(), compMethodName);
+                        if (compMethod == null) {
+                            log.warn("[workflow] Compensation method '{}' not found on bean '{}'",
+                                    compMethodName, bean.getClass().getSimpleName());
+                            return Mono.empty();
+                        }
+                        compMethod.setAccessible(true);
+
+                        Object stepResult = ctx.getResult(stepId);
+                        Object[] args = resolveCompensationArgs(compMethod, stepResult, ctx);
+                        Object result = compMethod.invoke(bean, args);
+
+                        if (result instanceof Mono<?> mono) {
+                            return mono.then()
+                                    .onErrorResume(e -> {
+                                        log.warn("[workflow] Compensation failed for step '{}'", stepId, e);
+                                        return Mono.empty();
+                                    });
+                        }
+                        return Mono.empty();
+                    } catch (Exception e) {
+                        log.warn("[workflow] Compensation failed for step '{}'", stepId, e);
+                        return Mono.empty();
+                    }
+                })
+                .then();
+    }
+
+    /**
+     * Find a compensation method by name on the given class, searching declared methods.
+     */
+    private Method findCompensationMethod(Class<?> clazz, String methodName) {
+        for (Method m : clazz.getDeclaredMethods()) {
+            if (m.getName().equals(methodName)) {
+                return m;
+            }
+        }
+        // Also check superclass methods
+        if (clazz.getSuperclass() != null && clazz.getSuperclass() != Object.class) {
+            return findCompensationMethod(clazz.getSuperclass(), methodName);
+        }
+        return null;
+    }
+
+    /**
+     * Resolve arguments for a compensation method by matching parameter types.
+     * Supports: step result (by assignability), ExecutionContext.
+     */
+    private Object[] resolveCompensationArgs(Method method, Object stepResult, ExecutionContext ctx) {
+        Class<?>[] paramTypes = method.getParameterTypes();
+        Object[] args = new Object[paramTypes.length];
+
+        for (int i = 0; i < paramTypes.length; i++) {
+            Class<?> pt = paramTypes[i];
+            if (ExecutionContext.class.isAssignableFrom(pt)) {
+                args[i] = ctx;
+            } else if (stepResult != null && pt.isAssignableFrom(stepResult.getClass())) {
+                args[i] = stepResult;
+            } else if (pt == Object.class) {
+                args[i] = stepResult;
+            } else {
+                args[i] = null;
+            }
+        }
+        return args;
     }
 
     private ExecutionState buildStateFromContext(String workflowId, ExecutionContext ctx, ExecutionStatus status) {

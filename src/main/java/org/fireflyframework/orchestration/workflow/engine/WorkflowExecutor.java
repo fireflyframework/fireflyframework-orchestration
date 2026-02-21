@@ -180,6 +180,9 @@ public class WorkflowExecutor {
                                         result -> {
                                             ctx.putResult(stepId, result);
                                             ctx.setStepStatus(stepId, StepStatus.DONE);
+                                            if (stepDef.compensatable()) {
+                                                ctx.addCompensatableStep(stepId);
+                                            }
                                             long latency = Duration.between(ctx.getStepStartedAt(stepId), Instant.now()).toMillis();
                                             ctx.setStepLatency(stepId, latency);
                                             events.onStepSuccess(def.workflowId(), ctx.getCorrelationId(), stepId,
@@ -199,6 +202,9 @@ public class WorkflowExecutor {
                             .flatMap(result -> {
                                 ctx.putResult(stepId, result);
                                 ctx.setStepStatus(stepId, StepStatus.DONE);
+                                if (stepDef.compensatable()) {
+                                    ctx.addCompensatableStep(stepId);
+                                }
                                 long latency = Duration.between(ctx.getStepStartedAt(stepId), Instant.now()).toMillis();
                                 ctx.setStepLatency(stepId, latency);
                                 events.onStepSuccess(def.workflowId(), ctx.getCorrelationId(), stepId,
@@ -209,6 +215,9 @@ public class WorkflowExecutor {
                             })
                             .switchIfEmpty(Mono.defer(() -> {
                                 ctx.setStepStatus(stepId, StepStatus.DONE);
+                                if (stepDef.compensatable()) {
+                                    ctx.addCompensatableStep(stepId);
+                                }
                                 long latency = Duration.between(ctx.getStepStartedAt(stepId), Instant.now()).toMillis();
                                 ctx.setStepLatency(stepId, latency);
                                 events.onStepSuccess(def.workflowId(), ctx.getCorrelationId(), stepId,
