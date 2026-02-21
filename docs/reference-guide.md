@@ -1,8 +1,8 @@
-# Firefly Orchestration — Complete Reference Guide
+# Firefly Orchestration -- Complete Reference Guide
 
 > **Version:** 26.02.06 | **Java:** 25+ | **Spring Boot:** 3.x | **Reactor:** 3.x
 
-This guide covers every aspect of the Firefly Orchestration module — from first principles through advanced patterns. It serves as both a learning resource and an API reference.
+This guide covers every aspect of the Firefly Orchestration module -- from first principles through advanced patterns. It serves as both a learning resource and an API reference.
 
 ---
 
@@ -12,7 +12,7 @@ This guide covers every aspect of the Firefly Orchestration module — from firs
   - [1. What Is Orchestration?](#1-what-is-orchestration)
   - [2. Architecture Overview](#2-architecture-overview)
   - [3. When to Use Which Pattern](#3-when-to-use-which-pattern)
-  - [4. Installation & Setup](#4-installation--setup)
+  - [4. Installation and Setup](#4-installation-and-setup)
 - [Part II: Workflow Pattern](#part-ii-workflow-pattern)
   - [5. Workflow Concepts](#5-workflow-concepts)
   - [6. Tutorial: Your First Workflow](#6-tutorial-your-first-workflow)
@@ -34,20 +34,23 @@ This guide covers every aspect of the Firefly Orchestration module — from firs
 - [Part V: Core Infrastructure](#part-v-core-infrastructure)
   - [20. ExecutionContext](#20-executioncontext)
   - [21. Parameter Injection Annotations](#21-parameter-injection-annotations)
-  - [22. Retry Policies & Backoff](#22-retry-policies--backoff)
-  - [23. Persistence Providers](#23-persistence-providers)
-  - [24. Dead-Letter Queue](#24-dead-letter-queue)
-  - [25. Observability (Events, Metrics, Tracing)](#25-observability-events-metrics-tracing)
-  - [26. REST API](#26-rest-api)
-  - [27. Recovery Service](#27-recovery-service)
-  - [28. Exception Hierarchy](#28-exception-hierarchy)
+  - [22. Retry Policies and Backoff](#22-retry-policies-and-backoff)
+  - [23. Event Integration](#23-event-integration)
+  - [24. Scheduling](#24-scheduling)
+  - [25. Persistence Providers](#25-persistence-providers)
+  - [26. Dead-Letter Queue](#26-dead-letter-queue)
+  - [27. Observability (Events, Metrics, Tracing)](#27-observability-events-metrics-tracing)
+  - [28. Lifecycle Callbacks](#28-lifecycle-callbacks)
+  - [29. REST API](#29-rest-api)
+  - [30. Recovery Service](#30-recovery-service)
+  - [31. Exception Hierarchy](#31-exception-hierarchy)
 - [Part VI: Configuration Reference](#part-vi-configuration-reference)
-  - [29. All Configuration Properties](#29-all-configuration-properties)
-  - [30. Auto-Configuration Chain](#30-auto-configuration-chain)
-- [Part VII: Recipes & Patterns](#part-vii-recipes--patterns)
-  - [31. Cross-Pattern Composition](#31-cross-pattern-composition)
-  - [32. Testing Your Orchestrations](#32-testing-your-orchestrations)
-  - [33. Production Checklist](#33-production-checklist)
+  - [32. All Configuration Properties](#32-all-configuration-properties)
+  - [33. Auto-Configuration Chain](#33-auto-configuration-chain)
+- [Part VII: Recipes and Patterns](#part-vii-recipes-and-patterns)
+  - [34. Cross-Pattern Composition](#34-cross-pattern-composition)
+  - [35. Testing Your Orchestrations](#35-testing-your-orchestrations)
+  - [36. Production Checklist](#36-production-checklist)
 
 ---
 
@@ -55,71 +58,70 @@ This guide covers every aspect of the Firefly Orchestration module — from firs
 
 ## 1. What Is Orchestration?
 
-Orchestration coordinates multi-step business processes where each step may:
-- Call a remote service
-- Write to a database
-- Publish an event
-- Invoke another orchestration
+Orchestration coordinates multi-step business processes where each step may call a remote service, write to a database, publish an event, or invoke another orchestration. The challenge is that any step can fail, and partial completion leaves the system in an inconsistent state. This module provides three patterns to handle this:
 
-The challenge is that any step can fail, and partial completion leaves the system in an inconsistent state. This module provides three patterns to handle this:
-
-| Pattern | Consistency | Isolation | Use Case |
-|---------|------------|-----------|----------|
-| **Workflow** | Eventual | None | Multi-step processes with dependency ordering |
-| **Saga** | Eventual | None | Distributed transactions with compensating actions |
-| **TCC** | Strong | Soft-lock | Distributed transactions requiring resource reservation |
+| Pattern      | Consistency | Isolation | Use Case                                                    |
+|--------------|-------------|-----------|-------------------------------------------------------------|
+| **Workflow** | Eventual    | None      | Multi-step processes with dependency ordering               |
+| **Saga**     | Eventual    | None      | Distributed transactions with compensating actions          |
+| **TCC**      | Strong      | Soft-lock | Distributed transactions requiring resource reservation     |
 
 ## 2. Architecture Overview
 
+The module is organized into four layers. Your application defines orchestrations using annotations or builders. The engine layer routes execution through pattern-specific orchestrators. The core layer provides shared infrastructure -- context management, step invocation, argument resolution, retry logic, topology computation. The persistence and observability layers are pluggable via Spring beans.
+
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Your Application                          │
-│  @Saga, @Workflow, @Tcc   OR   SagaBuilder, WorkflowBuilder │
-└──────────────┬──────────────────────────────┬───────────────┘
-               │ register                      │ execute
-┌──────────────▼──────────────────────────────▼───────────────┐
-│                 Engine Layer                                  │
-│  WorkflowEngine    SagaEngine    TccEngine                   │
-│       │                │              │                      │
-│  WorkflowExecutor  SagaExecutionOrchestrator  TccExecOrch.  │
-│                    SagaCompensator                            │
-└──────┬────────────────┬───────────────┬─────────────────────┘
-       │                │               │
-┌──────▼────────────────▼───────────────▼─────────────────────┐
-│                   Core Layer                                  │
-│  ExecutionContext   StepInvoker   ArgumentResolver            │
-│  TopologyBuilder    RetryPolicy   OrchestrationEvents         │
-│  ExecutionState     DeadLetterService   RecoveryService       │
-└──────┬────────────────────────────────────┬─────────────────┘
-       │                                    │
-┌──────▼────────────────┐  ┌───────────────▼──────────────────┐
-│   Persistence Layer    │  │        Observability Layer        │
-│  InMemory (default)    │  │  Logger / Metrics / Tracing      │
-│  Redis / Cache / ES    │  │  CompositeOrchestrationEvents    │
-└────────────────────────┘  └──────────────────────────────────┘
++--------------------------------------------------------------------+
+|                        Your Application                            |
+|  @Saga  @Workflow  @Tcc    OR    SagaBuilder  WorkflowBuilder      |
++----------------+----------------------------------+----------------+
+                 |  register                         |  execute
++----------------v----------------------------------v----------------+
+|                         Engine Layer                               |
+|   WorkflowEngine       SagaEngine           TccEngine              |
+|   WorkflowExecutor     SagaExecOrchestrator TccExecOrchestrator    |
+|                         SagaCompensator                            |
++--------+----------------------------+-------------------+----------+
+         |                            |                   |
++--------v----------------------------v-------------------v----------+
+|                          Core Layer                                |
+|   ExecutionContext    StepInvoker    ArgumentResolver               |
+|   TopologyBuilder     RetryPolicy    OrchestrationEvents           |
+|   ExecutionState      DeadLetterService    RecoveryService         |
++--------+------------------------------------------+---------+-----+
+         |                                          |         |
++--------v-----------------+   +--------------------v-+  +----v----+
+|    Persistence Layer     |   |  Observability Layer  |  |  Events |
+|  InMemory (default)      |   |  Logger / Metrics     |  |  Gateway|
+|  Redis / Cache / ES      |   |  Tracing              |  |  Publish|
++--------------------------+   +-----------------------+  +---------+
 ```
 
 **Key design decisions:**
-- **Reactive-first:** Every I/O operation returns `Mono` or `Flux`. No blocking calls.
+
+- **Reactive-first:** Every I/O operation returns `Mono` or `Flux`. No blocking calls anywhere in the execution path.
 - **Thread-safe:** `ExecutionContext` uses `ConcurrentHashMap` for all mutable state.
 - **Pluggable:** Persistence, observability, and event publishing are port interfaces with swappable adapters.
 - **Convention over configuration:** Zero-config defaults with Spring Boot auto-configuration.
 
 ## 3. When to Use Which Pattern
 
-### Use **Workflow** when:
-- Steps have dependency ordering (DAG) but no rollback needed
+### Use Workflow when:
+
+- Steps have dependency ordering (DAG) but no rollback is needed
 - You need suspend/resume/cancel lifecycle management
 - Steps are idempotent and can be retried safely
 - Example: ETL pipelines, report generation, multi-stage deployments
 
-### Use **Saga** when:
+### Use Saga when:
+
 - Each step has a compensating action (undo)
 - All-or-nothing semantics are needed across services
 - Steps can fail independently and you need automatic rollback
 - Example: Order processing, fund transfers, booking systems
 
-### Use **TCC** when:
+### Use TCC when:
+
 - You need resource reservation before committing
 - Stronger isolation is required (soft-locking)
 - Two-phase commitment with explicit try/confirm/cancel
@@ -129,13 +131,13 @@ The challenge is that any step can fail, and partial completion leaves the syste
 
 ```
 Need to undo on failure?
-├── No → WORKFLOW
-└── Yes
-    ├── Need resource reservation/locking? → TCC
-    └── Compensating actions sufficient? → SAGA
++-- No  -->  WORKFLOW
++-- Yes
+    +-- Need resource reservation/locking?  -->  TCC
+    +-- Compensating actions sufficient?    -->  SAGA
 ```
 
-## 4. Installation & Setup
+## 4. Installation and Setup
 
 ### Maven
 
@@ -154,10 +156,12 @@ The module auto-configures itself via Spring Boot's `META-INF/spring/org.springf
 ### Minimal Configuration
 
 No configuration is needed for development. The module starts with:
+
 - All patterns enabled
 - InMemory persistence
 - SLF4J structured logging
 - DLQ enabled
+- Scheduler with 4 threads
 
 ---
 
@@ -165,24 +169,27 @@ No configuration is needed for development. The module starts with:
 
 ## 5. Workflow Concepts
 
-A **Workflow** is a directed acyclic graph (DAG) of steps. Steps declare their dependencies, and the engine executes them in topological order — steps in the same layer run in parallel.
+A **Workflow** is a directed acyclic graph (DAG) of steps. Steps declare their dependencies, and the engine executes them in topological order -- steps in the same layer run in parallel.
 
 ```
-           ┌──────────┐
-           │ validate  │  Layer 0 (runs first)
-           └────┬──────┘
-           ┌────┴──────┐
-     ┌─────▼───┐ ┌─────▼───┐
-     │ charge  │ │ reserve │  Layer 1 (run in parallel)
-     └────┬────┘ └────┬────┘
-          └─────┬─────┘
-          ┌─────▼─────┐
-          │   ship    │  Layer 2
-          └───────────┘
+              +----------+
+              | validate |   Layer 0 (runs first)
+              +----+-----+
+              +----|-----+
+        +-----v--+ +--v-----+
+        | charge | | reserve |   Layer 1 (run in parallel)
+        +----+---+ +---+----+
+             +----+----+
+             +----v----+
+             |   ship  |   Layer 2
+             +---------+
 ```
+
+The `TopologyBuilder` uses Kahn's algorithm to compute layers from the dependency graph. It validates that the graph is acyclic and that all dependencies exist. Within each layer, steps execute concurrently. The optional `layerConcurrency` setting limits how many steps in a single layer can run at the same time.
 
 **Key concepts:**
-- **Step:** A single unit of work — a method that returns `Mono<T>`
+
+- **Step:** A single unit of work -- a method that returns `Mono<T>`
 - **Dependency:** `dependsOn` declares that a step cannot run until its dependencies complete
 - **Layer:** A group of steps with all dependencies satisfied, executed in parallel
 - **Topology:** The DAG structure computed by Kahn's algorithm
@@ -193,11 +200,6 @@ A **Workflow** is a directed acyclic graph (DAG) of steps. Steps declare their d
 ### Step 1: Create the Workflow Class
 
 ```java
-import org.fireflyframework.orchestration.workflow.annotation.*;
-import org.fireflyframework.orchestration.core.annotation.*;
-import reactor.core.publisher.Mono;
-import java.util.Map;
-
 @Workflow(name = "OrderProcessing", version = "1.0",
           description = "Processes a customer order end-to-end")
 public class OrderProcessingWorkflow {
@@ -206,7 +208,6 @@ public class OrderProcessingWorkflow {
     private final PaymentService paymentService;
     private final ShippingService shippingService;
 
-    // Constructor injection — Spring manages this bean
     public OrderProcessingWorkflow(InventoryService inventoryService,
                                     PaymentService paymentService,
                                     ShippingService shippingService) {
@@ -219,7 +220,6 @@ public class OrderProcessingWorkflow {
                   order = 0, timeoutMs = 5000)
     public Mono<Map<String, Object>> validateOrder(@Input Map<String, Object> input) {
         String orderId = (String) input.get("orderId");
-        // Validation logic here
         return Mono.just(Map.of("orderId", orderId, "validated", true));
     }
 
@@ -251,8 +251,8 @@ public class OrderProcessingWorkflow {
     }
 
     @OnWorkflowError(errorTypes = RuntimeException.class)
-    public void onError(@Input Throwable error) {
-        log.error("Order processing failed", error);
+    public void onError(Throwable error, ExecutionContext ctx) {
+        log.error("Order processing failed: {}", ctx.getCorrelationId(), error);
     }
 }
 ```
@@ -276,28 +276,28 @@ public class OrderController {
 ```java
 workflowEngine.startWorkflow("OrderProcessing", input)
     .subscribe(state -> {
-        System.out.println("Status: " + state.status());           // COMPLETED or FAILED
+        System.out.println("Status: " + state.status());
         System.out.println("Correlation: " + state.correlationId());
         System.out.println("Duration: " + Duration.between(
             state.startedAt(), state.updatedAt()).toMillis() + "ms");
         state.stepResults().forEach((stepId, result) ->
-            System.out.println("  " + stepId + " → " + result));
+            System.out.println("  " + stepId + " -> " + result));
     });
 ```
 
 ## 7. Workflow Builder DSL
 
-For cases where annotation scanning is not practical (e.g., dynamically composed workflows, testing):
+For cases where annotation scanning is not practical (dynamically composed workflows, testing, or runtime configuration):
 
 ```java
-import org.fireflyframework.orchestration.workflow.builder.WorkflowBuilder;
-
 WorkflowDefinition def = new WorkflowBuilder("DynamicPipeline")
     .description("A pipeline built at runtime")
     .version("2.0")
     .triggerMode(TriggerMode.SYNC)
     .timeout(60_000L)
     .retryPolicy(RetryPolicy.DEFAULT)
+    .triggerEventType("DataIngested")
+    .publishEvents(true)
     .step("extract")
         .name("Extract Data")
         .handler(extractorBean, extractorBean.getClass()
@@ -309,6 +309,7 @@ WorkflowDefinition def = new WorkflowBuilder("DynamicPipeline")
         .dependsOn("extract")
         .handler(transformerBean, transformerBean.getClass()
             .getMethod("transform", Map.class))
+        .condition("#{results['extract'] != null}")
         .add()
     .step("load")
         .name("Load Data")
@@ -316,74 +317,110 @@ WorkflowDefinition def = new WorkflowBuilder("DynamicPipeline")
         .handler(loaderBean, loaderBean.getClass()
             .getMethod("load", Map.class))
         .retryPolicy(new RetryPolicy(5, Duration.ofSeconds(2),
-            Duration.ofMinutes(1), 2.0, 0.1))
+            Duration.ofMinutes(1), 2.0, 0.1, new String[]{}))
         .add()
     .build();
 
-// Register it with the engine
 workflowEngine.registerWorkflow(def);
 
-// Execute it
 workflowEngine.startWorkflow("DynamicPipeline", Map.of("source", "s3://data"))
     .subscribe(state -> log.info("Pipeline result: {}", state.status()));
 ```
 
-## 8. Workflow Engine API
-
-### `WorkflowEngine` — Full Method Reference
+### WorkflowBuilder API
 
 | Method | Description |
 |--------|-------------|
-| `startWorkflow(workflowId, input)` | Start a workflow with auto-generated correlation ID |
-| `startWorkflow(workflowId, input, correlationId, triggeredBy, dryRun)` | Start with explicit options |
-| `cancelWorkflow(correlationId)` | Cancel a running workflow (rejects if already terminal) |
-| `suspendWorkflow(correlationId, reason)` | Suspend a running workflow with a reason |
-| `suspendWorkflow(correlationId)` | Suspend with default reason ("User requested") |
-| `resumeWorkflow(correlationId)` | Resume a suspended workflow from where it left off |
-| `findByStatus(status)` | Query workflows by status |
-| `findByCorrelationId(correlationId)` | Look up a specific execution |
-| `registerWorkflow(definition)` | Register a builder-created definition |
+| `description(String)` | Workflow description |
+| `version(String)` | Version string (default: "1.0") |
+| `triggerMode(TriggerMode)` | SYNC or ASYNC (default: SYNC) |
+| `timeout(long)` | Global timeout in milliseconds (default: 30000) |
+| `retryPolicy(RetryPolicy)` | Default retry policy for steps |
+| `publishEvents(boolean)` | Publish step completion events (default: false) |
+| `layerConcurrency(int)` | Max parallel steps per layer (0 = unbounded) |
+| `triggerEventType(String)` | Event type that triggers this workflow via EventGateway |
+| `step(String)` | Begin defining a step (returns StepBuilder) |
 
-### Return Types
+### StepBuilder API
 
-All methods return reactive types:
-- `Mono<ExecutionState>` — single execution state snapshot
-- `Flux<ExecutionState>` — stream of execution states
-- `Mono<Optional<ExecutionState>>` — optional lookup
+| Method | Description |
+|--------|-------------|
+| `name(String)` | Display name |
+| `description(String)` | Description |
+| `dependsOn(String...)` | Step dependencies |
+| `order(int)` | Explicit ordering hint |
+| `timeout(long)` | Step timeout in milliseconds |
+| `retryPolicy(RetryPolicy)` | Per-step retry policy |
+| `handler(Object, Method)` | Bean and method to invoke |
+| `outputEventType(String)` | Event type published on step completion |
+| `condition(String)` | SpEL condition for conditional execution |
+| `async(boolean)` | Run step asynchronously |
+| `compensatable(boolean, String)` | Enable compensation with method name |
+| `waitForSignal(String)` | Pause until a named signal is delivered |
+| `waitForSignal(String, long)` | Pause with timeout |
+| `waitForTimer(long)` | Pause for a fixed delay |
+| `waitForTimer(long, String)` | Pause with a named timer ID |
+| `add()` | Finish step definition, return to WorkflowBuilder |
+
+## 8. Workflow Engine API
+
+### WorkflowEngine Method Reference
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `startWorkflow(workflowId, input)` | `Mono<ExecutionState>` | Start with auto-generated correlation ID |
+| `startWorkflow(workflowId, input, correlationId, triggeredBy, dryRun)` | `Mono<ExecutionState>` | Start with explicit options |
+| `cancelWorkflow(correlationId)` | `Mono<ExecutionState>` | Cancel a running workflow |
+| `suspendWorkflow(correlationId, reason)` | `Mono<ExecutionState>` | Suspend with a reason |
+| `suspendWorkflow(correlationId)` | `Mono<ExecutionState>` | Suspend with default reason |
+| `resumeWorkflow(correlationId)` | `Mono<ExecutionState>` | Resume a suspended workflow |
+| `findByStatus(status)` | `Flux<ExecutionState>` | Query workflows by status |
+| `findByCorrelationId(correlationId)` | `Mono<Optional<ExecutionState>>` | Look up a specific execution |
+| `registerWorkflow(definition)` | `void` | Register a builder-created definition |
 
 ## 9. Workflow Lifecycle (Suspend/Resume/Cancel)
 
 Workflows support full lifecycle management:
 
 ```
-PENDING → RUNNING → COMPLETED
-                  → FAILED
-          RUNNING → SUSPENDED → RUNNING (resume)
-          RUNNING → CANCELLED
+PENDING --> RUNNING --> COMPLETED
+                   --> FAILED
+            RUNNING --> SUSPENDED --> RUNNING (resume)
+            RUNNING --> CANCELLED
 ```
 
 ### Suspend and Resume
 
 ```java
-// Start a long-running workflow
-Mono<ExecutionState> workflow = workflowEngine.startWorkflow("ETLPipeline", input);
-
-// Suspend it (e.g., during maintenance)
 workflowEngine.suspendWorkflow(correlationId, "Scheduled maintenance")
     .subscribe(state -> log.info("Suspended: {}", state.status()));
 
-// Resume it later — picks up from where it left off
-// Already-completed steps are skipped
 workflowEngine.resumeWorkflow(correlationId)
     .subscribe(state -> log.info("Resumed and completed: {}", state.status()));
 ```
+
+When a workflow resumes, already-completed steps are skipped. Execution picks up from where it left off.
 
 ### Cancel
 
 ```java
 workflowEngine.cancelWorkflow(correlationId)
     .subscribe(state -> log.info("Cancelled: {}", state.status()));
-    // Throws IllegalStateException if already COMPLETED/FAILED/CANCELLED
+```
+
+Cancellation is rejected if the workflow is already in a terminal state (COMPLETED, FAILED, CANCELLED).
+
+### Dry-Run Mode
+
+Dry-run mode traverses the entire DAG without executing any step logic. All steps are marked SKIPPED and no results are stored. This is useful for validating topology and step configuration before real execution.
+
+```java
+workflowEngine.startWorkflow("OrderProcessing", input, "corr-id", "test", true)
+    .subscribe(state -> {
+        // All steps will have status SKIPPED
+        state.stepStatuses().forEach((id, status) ->
+            assertThat(status).isEqualTo(StepStatus.SKIPPED));
+    });
 ```
 
 ---
@@ -395,9 +432,9 @@ workflowEngine.cancelWorkflow(correlationId)
 A **Saga** is a sequence of local transactions where each step has a **compensating action**. If any step fails, the saga engine automatically runs compensations for all completed steps in reverse order.
 
 ```
-Step 1: Reserve Inventory  →  Compensation: Cancel Reservation
-Step 2: Charge Payment     →  Compensation: Refund Payment
-Step 3: Ship Order         →  (no compensation — final step)
+Step 1: Reserve Inventory   -->  Compensation: Cancel Reservation
+Step 2: Charge Payment      -->  Compensation: Refund Payment
+Step 3: Ship Order           -->  (no compensation -- final step)
 
 If Step 2 fails:
   1. Run compensation for Step 1 (Cancel Reservation)
@@ -405,11 +442,13 @@ If Step 2 fails:
 ```
 
 **Key concepts:**
+
 - **Step:** A forward action that may succeed or fail
 - **Compensation:** An undo action that reverses a completed step
 - **Compensation Policy:** Strategy for running compensations (sequential, parallel, circuit breaker)
 - **StepInputs:** Per-step input data (static or lazy-resolved)
-- **ExpandEach:** Fan-out — clone a step once per item in a collection
+- **ExpandEach:** Fan-out -- clone a step once per item in a collection
+- **StepEvent:** Optional event published when a step completes
 
 ## 11. Tutorial: Your First Saga
 
@@ -432,7 +471,6 @@ public class TransferFundsSaga {
         return accountService.debit(request.fromAccount(), request.amount());
     }
 
-    // Compensation method — name matches @SagaStep.compensate
     public Mono<Void> creditBack(@Input DebitResult debitResult) {
         return accountService.credit(debitResult.accountId(), debitResult.amount());
     }
@@ -445,8 +483,10 @@ public class TransferFundsSaga {
         return accountService.credit(request.toAccount(), request.amount());
     }
 
-    // No compensation for the credit step — it's the final step
-    // If credit fails, debit is automatically compensated
+    @OnSagaComplete
+    public void onComplete(SagaResult result) {
+        log.info("Transfer completed: {}", result.correlationId());
+    }
 }
 ```
 
@@ -470,14 +510,12 @@ public class TransferService {
 sagaEngine.execute("TransferFunds", StepInputs.of("debit", request))
     .subscribe(result -> {
         if (result.isSuccess()) {
-            // All steps completed successfully
             DebitResult debit = result.resultOf("debit", DebitResult.class)
                 .orElseThrow();
             CreditResult credit = result.resultOf("credit", CreditResult.class)
                 .orElseThrow();
-            log.info("Transfer complete: {} → {}", debit, credit);
+            log.info("Transfer complete: {} -> {}", debit, credit);
         } else {
-            // Some step failed — compensations have already run
             log.error("Transfer failed: {}", result.error().orElse(null));
             log.info("Failed steps: {}", result.failedSteps());
             log.info("Compensated steps: {}", result.compensatedSteps());
@@ -485,21 +523,34 @@ sagaEngine.execute("TransferFunds", StepInputs.of("debit", request))
     });
 ```
 
+### SagaEngine Method Reference
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `execute(sagaName, StepInputs)` | `Mono<SagaResult>` | Execute by name with inputs |
+| `execute(sagaName, StepInputs, ExecutionContext)` | `Mono<SagaResult>` | Execute with explicit context |
+| `execute(sagaName, Map<String, Object>)` | `Mono<SagaResult>` | Execute with raw input map |
+| `execute(SagaDefinition, StepInputs)` | `Mono<SagaResult>` | Execute a builder-created definition |
+| `execute(SagaDefinition, StepInputs, ExecutionContext)` | `Mono<SagaResult>` | Execute with definition and context |
+
 ## 12. Saga Builder DSL
 
 The programmatic builder provides a fluent API for constructing sagas without annotations:
 
 ```java
 SagaDefinition def = SagaBuilder.saga("OrderSaga")
+    .triggerEventType("OrderCreated")
     .step("reserve")
         .retry(3)
         .backoffMs(500)
         .timeoutMs(10_000)
         .jitter()
         .jitterFactor(0.2)
+        .idempotencyKey("reserve-order")
         .compensationRetry(2)
         .compensationTimeout(Duration.ofSeconds(5))
         .compensationCritical(true)
+        .stepEvent("inventory", "InventoryReserved", "orderId")
         .handler((input, ctx) -> {
             OrderRequest order = (OrderRequest) input;
             return inventoryService.reserve(order.items());
@@ -517,7 +568,6 @@ SagaDefinition def = SagaBuilder.saga("OrderSaga")
     .step("notify")
         .dependsOn("charge")
         .handler(() -> notificationService.sendConfirmation())
-        // No compensation — notifications can't be unsent
         .add()
     .build();
 ```
@@ -526,23 +576,41 @@ SagaDefinition def = SagaBuilder.saga("OrderSaga")
 
 | Method | Signature | Use When |
 |--------|-----------|----------|
-| `handler(StepHandler)` | `(I, ExecutionContext) → Mono<O>` | Full interface implementation |
-| `handler(BiFunction)` | `(I, ExecutionContext) → Mono<O>` | Lambda with input + context |
-| `handlerInput(Function)` | `(I) → Mono<O>` | Lambda needing only the input |
-| `handlerCtx(Function)` | `(ExecutionContext) → Mono<O>` | Lambda needing only the context |
-| `handler(Supplier)` | `() → Mono<O>` | Lambda needing no arguments |
+| `handler(StepHandler)` | `(I, ExecutionContext) -> Mono<O>` | Full interface implementation |
+| `handler(BiFunction)` | `(I, ExecutionContext) -> Mono<O>` | Lambda with input + context |
+| `handlerInput(Function)` | `(I) -> Mono<O>` | Lambda needing only the input |
+| `handlerCtx(Function)` | `(ExecutionContext) -> Mono<O>` | Lambda needing only the context |
+| `handler(Supplier)` | `() -> Mono<O>` | Lambda needing no arguments |
 
 ### Compensation Variants
 
 | Method | Signature |
 |--------|-----------|
-| `compensation(BiFunction)` | `(Object, ExecutionContext) → Mono<Void>` |
-| `compensationCtx(Function)` | `(ExecutionContext) → Mono<Void>` |
-| `compensation(Supplier)` | `() → Mono<Void>` |
+| `compensation(BiFunction)` | `(Object, ExecutionContext) -> Mono<Void>` |
+| `compensationCtx(Function)` | `(ExecutionContext) -> Mono<Void>` |
+| `compensation(Supplier)` | `() -> Mono<Void>` |
+
+### Step Configuration
+
+| Method | Description |
+|--------|-------------|
+| `dependsOn(String...)` | Step dependencies |
+| `retry(int)` | Max retry attempts |
+| `backoff(Duration)` / `backoffMs(long)` | Backoff between retries |
+| `timeout(Duration)` / `timeoutMs(long)` | Step timeout |
+| `idempotencyKey(String)` | Literal key for deduplication |
+| `jitter()` / `jitter(boolean)` | Enable jitter on backoff |
+| `jitterFactor(double)` | Jitter factor (0.0 - 1.0, default 0.5) |
+| `cpuBound(boolean)` | Schedule on bounded-elastic scheduler |
+| `stepEvent(String, String, String)` | Per-step event publishing (topic, type, key) |
+| `compensationRetry(int)` | Retry attempts for compensation |
+| `compensationBackoff(Duration)` | Backoff for compensation retries |
+| `compensationTimeout(Duration)` | Timeout for compensation |
+| `compensationCritical(boolean)` | Circuit breaker flag for compensation |
 
 ## 13. Compensation Policies
 
-When a saga step fails, the engine runs compensations for all completed steps. The **compensation policy** determines how those compensations are executed.
+When a saga step fails, the engine runs compensations for all completed steps. The **compensation policy** determines how those compensations execute.
 
 Set the policy globally:
 
@@ -550,31 +618,31 @@ Set the policy globally:
 firefly:
   orchestration:
     saga:
-      compensation-policy: STRICT_SEQUENTIAL   # default
+      compensation-policy: STRICT_SEQUENTIAL
 ```
 
 ### STRICT_SEQUENTIAL (Default)
 
-Compensations run one at a time in **reverse completion order** (last completed → first completed). If compensation A fails, compensation B still runs.
+Compensations run one at a time in **reverse completion order** (last completed to first completed). If compensation A fails, compensation B still runs.
 
 ```
-Step 1 ✓ → Step 2 ✓ → Step 3 ✗ (failed)
-Compensate Step 2 → Compensate Step 1
+Step 1 ok --> Step 2 ok --> Step 3 FAIL
+Compensate Step 2 --> Compensate Step 1
 ```
 
-**Best for:** Most applications. Predictable, debuggable, safe.
+Best for most applications. Predictable, debuggable, safe.
 
 ### GROUPED_PARALLEL
 
 Steps in the same DAG layer are compensated in parallel; layers are compensated in reverse order.
 
 ```
-Layer 2: [Step3] ✓     → Compensate Step3
-Layer 1: [Step2a, Step2b] ✓  → Compensate Step2a || Step2b  (parallel)
-Layer 0: [Step1] ✓     → Compensate Step1
+Layer 2: [Step3] ok          --> Compensate Step3
+Layer 1: [Step2a, Step2b] ok --> Compensate Step2a || Step2b  (parallel)
+Layer 0: [Step1] ok          --> Compensate Step1
 ```
 
-**Best for:** Sagas with many independent steps in the same layer. Faster compensation.
+Best for sagas with many independent steps in the same layer.
 
 ### RETRY_WITH_BACKOFF
 
@@ -585,35 +653,35 @@ Compensate Step 2 (attempt 1: fail, attempt 2: fail, attempt 3: success)
 Compensate Step 1 (attempt 1: success)
 ```
 
-**Best for:** Compensations that may fail transiently (network issues, service restarts).
+Best for compensations that may fail transiently.
 
 ### CIRCUIT_BREAKER
 
-Like RETRY_WITH_BACKOFF, but tracks compensation failures. If a step marked `compensationCritical = true` fails compensation, the **circuit opens** and all remaining compensations are skipped.
+Like RETRY_WITH_BACKOFF, but tracks compensation failures. If a step marked `compensationCritical = true` fails compensation, the circuit opens and all remaining compensations are skipped.
 
 ```java
 .step("critical")
-    .compensationCritical(true)   // triggers circuit breaker on failure
+    .compensationCritical(true)
     .handler(...)
     .compensation(...)
     .add()
 ```
 
-**Best for:** Sagas where some compensations are critical for data integrity and subsequent compensations shouldn't run if a critical one fails.
+Best for sagas where some compensations are critical for data integrity.
 
 ### BEST_EFFORT_PARALLEL
 
-All compensations run in parallel with no ordering guarantee. Failures are logged but don't stop other compensations.
+All compensations run in parallel with no ordering guarantee. Failures are logged but do not stop other compensations.
 
 ```
 Compensate Step 1 || Step 2 || Step 3  (all parallel, all best-effort)
 ```
 
-**Best for:** Performance-critical sagas where compensation ordering doesn't matter and individual failures are acceptable.
+Best for performance-critical sagas where compensation ordering does not matter.
 
 ## 14. Saga Fan-Out (ExpandEach)
 
-`ExpandEach` dynamically clones a saga step for each item in a collection. This is useful for processing a batch of items where each needs its own saga step instance.
+`ExpandEach` dynamically clones a saga step for each item in a collection. This is useful for processing a batch of items where each needs its own step instance.
 
 ```java
 List<LineItem> items = List.of(
@@ -630,17 +698,19 @@ sagaEngine.execute("OrderSaga", inputs);
 ```
 
 This expands the saga at runtime:
+
 ```
-Original: reserve → charge → ship
-Expanded: reserve:SKU-001, reserve:SKU-002, reserve:SKU-003 → charge → ship
+Original:  reserve         --> charge --> ship
+Expanded:  reserve:SKU-001 \
+           reserve:SKU-002  |--> charge --> ship
+           reserve:SKU-003 /
 ```
 
-Each cloned step runs independently. Downstream steps (`charge`) wait for all expanded steps to complete.
+Each cloned step runs independently. Downstream steps wait for all expanded steps to complete.
 
-You can provide a custom ID suffix function:
 ```java
-ExpandEach.of(items)                    // uses #0, #1, #2 suffixes
-ExpandEach.of(items, item -> item.id()) // uses :id suffix
+ExpandEach.of(items)                     // uses #0, #1, #2 suffixes
+ExpandEach.of(items, item -> item.id())  // uses :id suffix
 ```
 
 ## 15. Saga Result API
@@ -655,14 +725,17 @@ result.sagaName();              // "TransferFunds"
 result.correlationId();         // "550e8400-e29b-..."
 result.isSuccess();             // true or false
 result.duration();              // Duration between start and completion
-result.error();                 // Optional<Throwable> — primary error if failed
-result.headers();               // Map<String, String> — execution headers
+result.error();                 // Optional<Throwable> -- primary error if failed
+result.headers();               // Map<String, String> -- execution headers
+result.startedAt();             // Instant
+result.completedAt();           // Instant
 
 // Per-step inspection
-result.steps();                 // Map<String, StepOutcome> — all step outcomes
-result.failedSteps();           // List<String> — IDs of failed steps
-result.compensatedSteps();      // List<String> — IDs of compensated steps
-result.firstErrorStepId();      // Optional<String> — first step that failed
+result.steps();                 // Map<String, StepOutcome> -- all step outcomes
+result.failedSteps();           // List<String> -- IDs of failed steps
+result.compensatedSteps();      // List<String> -- IDs of compensated steps
+result.firstErrorStepId();      // Optional<String> -- first step that failed
+result.stepResults();           // Map<String, Object> -- raw step results
 
 // Type-safe result extraction
 Optional<DebitResult> debit = result.resultOf("debit", DebitResult.class);
@@ -670,14 +743,22 @@ Optional<DebitResult> debit = result.resultOf("debit", DebitResult.class);
 // StepOutcome fields
 StepOutcome outcome = result.steps().get("debit");
 outcome.status();               // StepStatus (DONE, FAILED, COMPENSATED, etc.)
-outcome.attempts();             // int — number of execution attempts
-outcome.latencyMs();            // long — execution duration in ms
-outcome.result();               // Object — step return value
-outcome.error();                // Throwable — step error (null if succeeded)
-outcome.compensated();          // boolean — was compensation run?
-outcome.compensationResult();   // Object — compensation return value
-outcome.compensationError();    // Throwable — compensation error (null if succeeded)
+outcome.attempts();             // int -- number of execution attempts
+outcome.latencyMs();            // long -- execution duration in ms
+outcome.result();               // Object -- step return value
+outcome.error();                // Throwable -- step error (null if succeeded)
+outcome.compensated();          // boolean -- was compensation run?
+outcome.startedAt();            // Instant -- when step started
+outcome.compensationResult();   // Object -- compensation return value
+outcome.compensationError();    // Throwable -- compensation error (null if succeeded)
 ```
+
+### Factory Methods
+
+| Method | Description |
+|--------|-------------|
+| `SagaResult.from(sagaName, ctx, compensatedFlags, stepErrors, allStepIds)` | Build from execution context |
+| `SagaResult.failed(sagaName, correlationId, failedStepId, error, steps)` | Build a pre-failed result |
 
 ---
 
@@ -687,26 +768,27 @@ outcome.compensationError();    // Throwable — compensation error (null if suc
 
 **TCC (Try-Confirm-Cancel)** is a two-phase distributed transaction protocol. Each participant implements three operations:
 
-| Phase | Purpose | When It Runs |
-|-------|---------|--------------|
-| **Try** | Reserve resources, validate preconditions | Always runs first |
-| **Confirm** | Commit the reservation | Only if ALL tries succeed |
-| **Cancel** | Release the reservation | Only if ANY try fails |
+| Phase       | Purpose                              | When It Runs                   |
+|-------------|--------------------------------------|--------------------------------|
+| **Try**     | Reserve resources, validate          | Always runs first              |
+| **Confirm** | Commit the reservation               | Only if ALL tries succeed      |
+| **Cancel**  | Release the reservation              | Only if ANY try fails          |
 
 ```
-Participant A: Try ✓  Participant B: Try ✓  → Confirm A, Confirm B
-Participant A: Try ✓  Participant B: Try ✗  → Cancel A (B was never reserved)
-Participant A: Try ✓  Confirm A ✗           → Cancel A (confirm failure triggers cancel)
+Participant A: Try ok   Participant B: Try ok   --> Confirm A, Confirm B
+Participant A: Try ok   Participant B: Try FAIL --> Cancel A (B was never reserved)
+Participant A: Try ok   Confirm A FAIL          --> Cancel A (confirm failure triggers cancel)
 ```
 
-**Key difference from Saga:** In a Saga, the forward action is committed immediately and must be compensated on failure. In TCC, the Try phase only *reserves* resources — nothing is committed until the Confirm phase.
+**Key difference from Saga:** In a Saga, the forward action is committed immediately and must be compensated on failure. In TCC, the Try phase only *reserves* resources -- nothing is committed until the Confirm phase.
 
-**Confirm failure behavior:** If the Confirm phase fails for any participant, the framework automatically chains into the Cancel phase to restore consistency. This prevents partial commits that leave the system in an inconsistent state. The result status will be `CANCELED` (if cancel succeeds) or `FAILED` (if cancel also fails, which routes to the DLQ).
+**Confirm failure behavior:** If the Confirm phase fails for any participant, the framework automatically chains into the Cancel phase to restore consistency. The result status will be `CANCELED` (if cancel succeeds) or `FAILED` (if cancel also fails, which routes to the DLQ).
 
 **Key concepts:**
+
 - **Participant:** A service that implements Try/Confirm/Cancel for a resource
 - **Order:** Participants execute their Try phase in defined order
-- **Optional:** An optional participant's Try failure doesn't trigger Cancel for others
+- **Optional:** An optional participant's Try failure does not trigger Cancel for others
 - **TccInputs:** Per-participant input data for the Try phase
 
 ## 17. Tutorial: Your First TCC Transaction
@@ -729,20 +811,17 @@ public class TransferFundsTcc {
 
         @TryMethod(timeoutMs = 5000, retry = 2)
         public Mono<String> tryDebit(@Input TransferRequest request) {
-            // Reserve the funds (soft-lock, not committed)
             return accountService.holdFunds(
                 request.fromAccount(), request.amount());
         }
 
         @ConfirmMethod(timeoutMs = 5000, retry = 3)
         public Mono<Void> confirmDebit(@FromTry("debit") String holdId) {
-            // Commit the hold — funds are now debited
             return accountService.commitHold(holdId);
         }
 
         @CancelMethod(timeoutMs = 5000, retry = 3)
         public Mono<Void> cancelDebit(@FromTry("debit") String holdId) {
-            // Release the hold — funds are available again
             return accountService.releaseHold(holdId);
         }
     }
@@ -772,6 +851,16 @@ public class TransferFundsTcc {
             return accountService.cancelCredit(prepId);
         }
     }
+
+    @OnTccComplete
+    public void onComplete(TccResult result) {
+        log.info("Transfer confirmed: {}", result.correlationId());
+    }
+
+    @OnTccError
+    public void onError(Throwable error, ExecutionContext ctx) {
+        log.error("Transfer failed: {}", ctx.getCorrelationId(), error);
+    }
 }
 ```
 
@@ -799,18 +888,15 @@ tccEngine.execute("TransferFunds", inputs)
     .subscribe(result -> {
         switch (result.status()) {
             case CONFIRMED -> {
-                // All participants confirmed — transaction committed
                 log.info("Transfer confirmed: {}", result.correlationId());
                 Optional<String> holdId = result.tryResultOf("debit", String.class);
             }
             case CANCELED -> {
-                // A try failed — all successful tries were canceled
                 log.warn("Transfer canceled: participant={}, error={}",
                     result.failedParticipantId().orElse("unknown"),
                     result.error().map(Throwable::getMessage).orElse("none"));
             }
             case FAILED -> {
-                // Confirm or cancel phase failed — needs manual intervention
                 log.error("Transfer failed: phase={}, participant={}",
                     result.failedPhase().orElse(null),
                     result.failedParticipantId().orElse("unknown"));
@@ -819,10 +905,21 @@ tccEngine.execute("TransferFunds", inputs)
     });
 ```
 
+### TccEngine Method Reference
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `execute(tccName, TccInputs)` | `Mono<TccResult>` | Execute by name with inputs |
+| `execute(tccName, TccInputs, ExecutionContext)` | `Mono<TccResult>` | Execute with explicit context |
+| `execute(tccName, Map<String, Object>)` | `Mono<TccResult>` | Execute with raw participant inputs |
+| `execute(TccDefinition, TccInputs)` | `Mono<TccResult>` | Execute a builder-created definition |
+| `execute(TccDefinition, TccInputs, ExecutionContext)` | `Mono<TccResult>` | Execute with definition and context |
+
 ## 18. TCC Builder DSL
 
 ```java
-TccDefinition def = TccBuilder.tcc("TransferFunds", 30_000L, true, 3, 500L)
+TccDefinition def = TccBuilder.tcc("TransferFunds")
+    .triggerEventType("TransferRequested")
     .participant("debit")
         .order(0)
         .tryTimeoutMs(5_000L)
@@ -832,6 +929,8 @@ TccDefinition def = TccBuilder.tcc("TransferFunds", 30_000L, true, 3, 500L)
         .confirmRetry(3)
         .cancelTimeoutMs(5_000L)
         .cancelRetry(3)
+        .jitter(true)
+        .event("transfers", "DebitConfirmed", "holdId")
         .tryHandler((input, ctx) -> {
             TransferRequest req = (TransferRequest) input;
             return accountService.holdFunds(req.fromAccount(), req.amount());
@@ -847,7 +946,6 @@ TccDefinition def = TccBuilder.tcc("TransferFunds", 30_000L, true, 3, 500L)
         .add()
     .participant("credit")
         .order(1)
-        .optional(false)
         .tryHandler((input, ctx) ->
             accountService.prepareCredit(((TransferRequest) input).toAccount(),
                 ((TransferRequest) input).amount()))
@@ -864,9 +962,15 @@ tccEngine.execute(def, TccInputs.of(Map.of(
 )));
 ```
 
+### Builder Defaults
+
+`TccBuilder.tcc(name)` creates a definition with defaults matching the `@Tcc` annotation: `timeoutMs = -1`, `retryEnabled = true`, `maxRetries = 3`, `backoffMs = 1000`.
+
+For retry-disabled definitions, use `TccBuilder.tccNoRetry(name)` which sets `retryEnabled = false`, `maxRetries = 0`, `backoffMs = 0`.
+
 ### Convention-Based Handler
 
-You can also pass a bean with `doTry`, `doConfirm`, `doCancel` methods:
+You can pass a bean with `doTry`, `doConfirm`, `doCancel` methods instead of lambda functions:
 
 ```java
 public class DebitHandler {
@@ -877,18 +981,18 @@ public class DebitHandler {
 
 TccBuilder.tcc("Transfer")
     .participant("debit")
-        .handler(new DebitHandler())    // methods resolved by convention
+        .handler(new DebitHandler())
         .add()
     .build();
 ```
 
 ### Optional Participants
 
-An optional participant's Try failure does not trigger Cancel for other participants. The saga continues as if the optional participant was not present.
+An optional participant's Try failure does not trigger Cancel for other participants:
 
 ```java
 .participant("loyalty-points")
-    .optional(true)    // failure here won't cancel debit/credit
+    .optional(true)
     .tryHandler(...)
     .confirmHandler(...)
     .cancelHandler(...)
@@ -916,7 +1020,7 @@ result.completedAt();               // Instant
 // Error info
 result.error();                     // Optional<Throwable>
 result.failedParticipantId();       // Optional<String>
-result.failedPhase();               // Optional<TccPhase> — TRY, CONFIRM, or CANCEL
+result.failedPhase();               // Optional<TccPhase> -- TRY, CONFIRM, or CANCEL
 
 // Per-participant outcomes
 result.participants();              // Map<String, ParticipantOutcome>
@@ -925,14 +1029,22 @@ result.tryResultOf("debit", String.class);   // Optional<T>
 // ParticipantOutcome fields
 ParticipantOutcome outcome = result.participants().get("debit");
 outcome.participantId();            // "debit"
-outcome.tryResult();                // Object — Try phase return value
+outcome.tryResult();                // Object -- Try phase return value
 outcome.trySucceeded();             // boolean
 outcome.confirmSucceeded();         // boolean
 outcome.cancelExecuted();           // boolean
 outcome.error();                    // Throwable (null if no error)
-outcome.attempts();                 // int — total attempts
+outcome.attempts();                 // int -- total attempts
 outcome.latencyMs();                // long
 ```
+
+### Factory Methods
+
+| Method | Description |
+|--------|-------------|
+| `TccResult.confirmed(tccName, ctx, participants)` | All phases succeeded |
+| `TccResult.canceled(tccName, ctx, failedId, failedPhase, error, participants)` | Try failed, cancel ran |
+| `TccResult.failed(tccName, ctx, failedId, failedPhase, error, participants)` | Confirm/Cancel failed |
 
 ---
 
@@ -940,37 +1052,46 @@ outcome.latencyMs();                // long
 
 ## 20. ExecutionContext
 
-`ExecutionContext` is the thread-safe state carrier shared across all steps in an execution. It holds variables, headers, step results, step statuses, and pattern-specific state.
+`ExecutionContext` is the thread-safe state carrier shared across all steps in an execution. It holds variables, headers, step results, step statuses, and pattern-specific state. All internal maps use `ConcurrentHashMap`.
 
 ### Creating Contexts
 
 ```java
-// Typically the engine creates these, but you can create them manually:
 ExecutionContext ctx = ExecutionContext.forWorkflow("correlation-123", "MyWorkflow");
-ExecutionContext ctx = ExecutionContext.forWorkflow("correlation-123", "MyWorkflow", true); // dry run
+ExecutionContext ctx = ExecutionContext.forWorkflow("correlation-123", "MyWorkflow", true);  // dry run
 ExecutionContext ctx = ExecutionContext.forSaga(null, "MySaga");       // null = auto-generate ID
 ExecutionContext ctx = ExecutionContext.forTcc(null, "MyTcc");
 ```
 
+### Identity
+
+```java
+ctx.getCorrelationId();     // unique execution ID
+ctx.getExecutionName();     // saga/workflow/tcc name
+ctx.getPattern();           // ExecutionPattern (WORKFLOW, SAGA, TCC)
+ctx.getStartedAt();         // Instant when execution began
+ctx.isDryRun();             // true if dry-run mode (workflow only)
+```
+
 ### Variables
 
-Variables are execution-wide key-value pairs. They survive across steps and are persisted with the execution state.
+Variables are execution-wide key-value pairs that persist across steps:
 
 ```java
 ctx.putVariable("orderId", "ORD-123");
 String orderId = ctx.getVariableAs("orderId", String.class);
 ctx.removeVariable("tempData");
-Map<String, Object> all = ctx.getVariables();   // unmodifiable view
+Map<String, Object> all = ctx.getVariables();
 ```
 
 ### Headers
 
-Headers are string key-value metadata (like HTTP headers):
+String key-value metadata (similar to HTTP headers):
 
 ```java
 ctx.putHeader("X-Tenant-Id", "acme");
 String tenant = ctx.getHeader("X-Tenant-Id");
-Map<String, String> all = ctx.getHeaders();     // unmodifiable view
+Map<String, String> all = ctx.getHeaders();
 ```
 
 ### Step Results
@@ -980,16 +1101,19 @@ Each step's return value is stored by step ID:
 ```java
 ctx.putResult("validate", validationResult);
 Object result = ctx.getResult("validate");
-Map<String, Object> all = ctx.getStepResults(); // unmodifiable view
+<T> T typed = ctx.getResult("validate", Map.class);
+Map<String, Object> all = ctx.getStepResults();
 ```
 
 ### Step Status Tracking
 
 ```java
 ctx.setStepStatus("validate", StepStatus.RUNNING);
-StepStatus status = ctx.getStepStatus("validate"); // PENDING if not set
-int attempts = ctx.incrementAttempts("validate");   // returns new count
-ctx.setStepLatency("validate", 150L);               // milliseconds
+StepStatus status = ctx.getStepStatus("validate");   // PENDING if not set
+int attempts = ctx.incrementAttempts("validate");     // returns new count
+ctx.setStepLatency("validate", 150L);                 // milliseconds
+ctx.markStepStarted("validate");                      // records Instant
+Instant started = ctx.getStepStartedAt("validate");
 ```
 
 ### Idempotency Keys
@@ -1001,11 +1125,45 @@ boolean isNew = ctx.addIdempotencyKey("debit:ORD-123");
 if (ctx.hasIdempotencyKey("debit:ORD-123")) {
     // Already processed
 }
+Set<String> keys = ctx.getIdempotencyKeys();
+```
+
+### Saga-Specific: Compensation State
+
+```java
+ctx.putCompensationResult("debit", refundResult);
+ctx.putCompensationError("debit", error);
+Object result = ctx.getCompensationResult("debit");
+Throwable error = ctx.getCompensationError("debit");
+```
+
+### TCC-Specific: Try Results and Phase Tracking
+
+```java
+ctx.setCurrentPhase(TccPhase.TRY);
+TccPhase phase = ctx.getCurrentPhase();
+ctx.putTryResult("debit", holdId);
+Object tryResult = ctx.getTryResult("debit");
+Map<String, Object> allTryResults = ctx.getTryResults();
+```
+
+### Workflow-Specific: Compensatable Step Tracking
+
+```java
+ctx.addCompensatableStep("charge");
+List<String> compensatable = ctx.getCompletedCompensatableSteps();
+```
+
+### Topology
+
+```java
+ctx.setTopologyLayers(layers);
+List<List<String>> layers = ctx.getTopologyLayers();
 ```
 
 ## 21. Parameter Injection Annotations
 
-The `ArgumentResolver` automatically injects values into step method parameters based on annotations:
+The `ArgumentResolver` automatically injects values into step method parameters based on annotations. This works across all three patterns.
 
 | Annotation | What It Injects | Example |
 |------------|----------------|---------|
@@ -1014,14 +1172,15 @@ The `ArgumentResolver` automatically injects values into step method parameters 
 | `@FromStep("stepId")` | The result of a completed step | `@FromStep("validate") Map result` |
 | `@FromCompensationResult("stepId")` | Compensation result of a step | `@FromCompensationResult("debit") Object r` |
 | `@CompensationError("stepId")` | Compensation error of a step | `@CompensationError("debit") Throwable err` |
+| `@FromTry("participantId")` | TCC Try-phase result | `@FromTry("debit") String holdId` |
 | `@Header("name")` | A single header value | `@Header("X-Tenant") String tenant` |
 | `@Headers` | The full headers map | `@Headers Map<String,String> headers` |
 | `@Variable("name")` | A single context variable | `@Variable("orderId") String id` |
 | `@Variables` | The full variables map | `@Variables Map<String,Object> vars` |
-| `@Required` | Enforces non-null | `@Required @FromStep("x") Object r` |
-| `@FromTry("participantId")` | TCC Try-phase result | `@FromTry("debit") String holdId` |
+| `@CorrelationId` | The execution's correlation ID | `@CorrelationId String corrId` |
+| `@Required` | Enforces non-null (modifier) | `@Required @FromStep("x") Object r` |
 
-### `@SetVariable` (Method-Level)
+### @SetVariable (Method-Level)
 
 Store the method's return value as a named context variable:
 
@@ -1032,7 +1191,6 @@ public Mono<String> lookupCustomer(@Input OrderRequest req) {
     return customerService.findId(req.email());
 }
 
-// Later steps can access it:
 @SagaStep(id = "charge", dependsOn = "lookup")
 public Mono<Void> charge(@Variable("customerId") String customerId) {
     return paymentService.charge(customerId);
@@ -1042,25 +1200,26 @@ public Mono<Void> charge(@Variable("customerId") String customerId) {
 ### Unannotated Parameters
 
 If a parameter has no annotation, the resolver attempts to inject:
+
 1. The `ExecutionContext` if the parameter type matches
 2. The step input if the parameter type is assignable
 3. `null` otherwise
 
-## 22. Retry Policies & Backoff
+## 22. Retry Policies and Backoff
 
 ### RetryPolicy Record
 
 ```java
 public record RetryPolicy(
-    int maxAttempts,           // total attempts (1 = no retry)
-    Duration initialDelay,     // delay before first retry
-    Duration maxDelay,         // cap on exponential growth
-    double multiplier,         // backoff multiplier (2.0 = doubling)
-    double jitterFactor        // 0.0-1.0, randomizes delay
+    int maxAttempts,              // total attempts (1 = no retry)
+    Duration initialDelay,        // delay before first retry
+    Duration maxDelay,            // cap on exponential growth
+    double multiplier,            // backoff multiplier (2.0 = doubling)
+    double jitterFactor,          // 0.0-1.0, randomizes delay
+    String[] retryableExceptions  // only retry these exception types (empty = all)
 ) {
-    // Predefined policies
-    static final RetryPolicy DEFAULT = new RetryPolicy(3, 1s, 5m, 2.0, 0.1);
-    static final RetryPolicy NO_RETRY = new RetryPolicy(1, 0, 0, 1.0, 0.0);
+    static final RetryPolicy DEFAULT = new RetryPolicy(3, 1s, 5m, 2.0, 0.0, {});
+    static final RetryPolicy NO_RETRY = new RetryPolicy(1, 0, 0, 1.0, 0.0, {});
 }
 ```
 
@@ -1076,9 +1235,10 @@ Attempt 3: execute (fail)
 ```
 
 With jitter (factor = 0.1):
+
 ```
 Base delay = 2s
-Jittered delay = 2s ± (2s * 0.1) = between 1.8s and 2.2s
+Jittered delay = 2s +/- (2s * 0.1) = between 1.8s and 2.2s
 ```
 
 ### Per-Step Retry (Annotation)
@@ -1100,7 +1260,230 @@ Jittered delay = 2s ± (2s * 0.1) = between 1.8s and 2.2s
     .add()
 ```
 
-## 23. Persistence Providers
+### Workflow Retry Fallback
+
+When a workflow step has `RetryPolicy.NO_RETRY`, the engine falls back to the workflow-level retry policy. If the step has its own retry policy, the step-level policy takes precedence.
+
+## 23. Event Integration
+
+The event system has two directions: **inbound** (triggering orchestrations) and **outbound** (publishing events when steps complete).
+
+### Inbound: Event-Driven Triggering
+
+Any orchestration can be triggered by an external event using `triggerEventType`. This works identically across annotations and builders for all three patterns.
+
+**Annotation:**
+
+```java
+@Saga(name = "OrderSaga", triggerEventType = "OrderCreated")
+@Tcc(name = "PaymentTcc", triggerEventType = "PaymentRequested")
+@Workflow(id = "Pipeline", triggerEventType = "DataIngested")
+```
+
+**Builder:**
+
+```java
+SagaBuilder.saga("OrderSaga").triggerEventType("OrderCreated")
+TccBuilder.tcc("PaymentTcc").triggerEventType("PaymentRequested")
+new WorkflowBuilder("Pipeline").triggerEventType("DataIngested")
+```
+
+**Routing:**
+
+The `EventGateway` maintains a registry of event type to orchestration mappings. When an event arrives, it looks up the registered executor and invokes it:
+
+```java
+eventGateway.routeEvent("OrderCreated", Map.of("orderId", "ORD-123"))
+    .subscribe();
+```
+
+```java
+// Query the gateway
+eventGateway.hasRegistration("OrderCreated");   // boolean
+eventGateway.registrationCount();                // int
+eventGateway.registeredEventTypes();             // Set<String>
+```
+
+### Outbound: Step-Level Event Publishing
+
+**Saga -- @StepEvent:**
+
+Publishes an event each time an individual step completes successfully, regardless of the overall saga outcome:
+
+```java
+@SagaStep(id = "reserve")
+@StepEvent(topic = "inventory", type = "InventoryReserved", key = "orderId")
+public Mono<String> reserve(@Input OrderRequest req) { ... }
+```
+
+Builder equivalent:
+
+```java
+.step("reserve")
+    .stepEvent("inventory", "InventoryReserved", "orderId")
+    .handler(...)
+    .add()
+```
+
+**TCC -- @TccEvent:**
+
+Publishes an event when a TCC participant completes its Confirm phase:
+
+```java
+@TccEvent(topic = "payments", eventType = "PaymentConfirmed", key = "txId")
+@TccParticipant(id = "debit", order = 0)
+public static class DebitParticipant { ... }
+```
+
+Builder equivalent:
+
+```java
+.participant("debit")
+    .event("payments", "PaymentConfirmed", "txId")
+    .tryHandler(...)
+    .confirmHandler(...)
+    .cancelHandler(...)
+    .add()
+```
+
+**Workflow -- publishEvents:**
+
+When `publishEvents = true` on a workflow, the engine publishes `OrchestrationEvent.stepCompleted` for each step that finishes:
+
+```java
+@Workflow(id = "Pipeline", publishEvents = true)
+```
+
+Builder equivalent:
+
+```java
+new WorkflowBuilder("Pipeline").publishEvents(true)
+```
+
+Individual steps can also specify `outputEventType` for custom event types:
+
+```java
+@WorkflowStep(id = "extract", outputEventType = "DataExtracted")
+```
+
+### OrchestrationEvent
+
+Events are represented as `OrchestrationEvent` records:
+
+```java
+record OrchestrationEvent(
+    String eventType,       // "EXECUTION_STARTED", "STEP_COMPLETED", etc.
+    String executionName,
+    String correlationId,
+    ExecutionPattern pattern,
+    String stepId,
+    ExecutionStatus status,
+    Map<String, Object> payload,
+    Instant timestamp,
+    String topic,           // from @StepEvent/@TccEvent
+    String type,            // from @StepEvent/@TccEvent
+    String key              // from @StepEvent/@TccEvent
+)
+```
+
+Factory methods: `executionStarted(...)`, `executionCompleted(...)`, `stepCompleted(...)`, `stepFailed(...)`.
+
+### OrchestrationEventPublisher
+
+Events are published through the `OrchestrationEventPublisher` interface. The default implementation is a no-op. Provide a custom bean to integrate with your messaging infrastructure (Kafka, RabbitMQ, etc.):
+
+```java
+@Component
+public class KafkaEventPublisher implements OrchestrationEventPublisher {
+    @Override
+    public Mono<Void> publish(OrchestrationEvent event) {
+        return kafkaTemplate.send(event.topic(), event.key(), event)
+            .then();
+    }
+}
+```
+
+## 24. Scheduling
+
+All three patterns support scheduled execution with full attribute parity.
+
+### Scheduling Annotations
+
+**@ScheduledSaga:**
+
+```java
+@Saga(name = "CleanupSaga")
+@ScheduledSaga(cron = "0 0 2 * * *", zone = "America/New_York",
+               enabled = true, input = "{\"daysOld\": 30}",
+               description = "Nightly cleanup")
+public class CleanupSaga { ... }
+```
+
+**@ScheduledTcc:**
+
+```java
+@Tcc(name = "ReconciliationTcc")
+@ScheduledTcc(fixedRate = 60000, initialDelay = 5000,
+              input = "{\"batchSize\": 100}")
+public class ReconciliationTcc { ... }
+```
+
+**@ScheduledWorkflow:**
+
+```java
+@Workflow(id = "ReportWorkflow")
+@ScheduledWorkflow(fixedDelay = 3600000, zone = "UTC")
+public class ReportWorkflow { ... }
+```
+
+### Annotation Attributes (All Three)
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `cron` | String | `""` | Cron expression (6 fields: second minute hour day month weekday) |
+| `zone` | String | `""` | Timezone for cron (e.g., "America/New_York") |
+| `fixedRate` | long | `-1` | Fixed rate in milliseconds |
+| `fixedDelay` | long | `-1` | Fixed delay in milliseconds |
+| `initialDelay` | long | `0` | Initial delay before first execution |
+| `enabled` | boolean | `true` | Whether this schedule is active |
+| `input` | String | `"{}"` | JSON input passed to the engine |
+| `description` | String | `""` | Human-readable description |
+
+### Multiple Schedules
+
+All scheduling annotations are `@Repeatable`, so you can apply multiple to a single class:
+
+```java
+@Saga(name = "multi-schedule")
+@ScheduledSaga(fixedRate = 2000)
+@ScheduledSaga(cron = "0 0 * * * *")
+public class MultiScheduleSaga { ... }
+```
+
+### OrchestrationScheduler
+
+The `OrchestrationScheduler` manages the underlying `ScheduledExecutorService`:
+
+```java
+scheduler.scheduleAtFixedRate(taskId, task, initialDelay, period);
+scheduler.scheduleWithFixedDelay(taskId, task, initialDelay, delay);
+scheduler.scheduleWithCron(taskId, task, cronExpression);
+scheduler.scheduleWithCron(taskId, task, cronExpression, zone);
+scheduler.cancel(taskId);
+scheduler.activeTaskCount();
+scheduler.shutdown();
+```
+
+Thread pool size is configured via:
+
+```yaml
+firefly:
+  orchestration:
+    scheduling:
+      thread-pool-size: 4
+```
+
+## 25. Persistence Providers
 
 ### Provider Selection
 
@@ -1108,10 +1491,10 @@ Jittered delay = 2s ± (2s * 0.1) = between 1.8s and 2.2s
 firefly:
   orchestration:
     persistence:
-      provider: in-memory    # default
-      # provider: redis      # requires ReactiveRedisTemplate
-      # provider: cache      # requires fireflyframework-cache CacheAdapter
-      # provider: event-sourced  # requires fireflyframework-eventsourcing EventStore
+      provider: in-memory
+      # provider: redis
+      # provider: cache
+      # provider: event-sourced
 ```
 
 ### ExecutionPersistenceProvider Interface
@@ -1130,6 +1513,32 @@ public interface ExecutionPersistenceProvider {
 }
 ```
 
+### ExecutionState Record
+
+```java
+record ExecutionState(
+    String correlationId,
+    String executionName,
+    ExecutionPattern pattern,
+    ExecutionStatus status,
+    Map<String, Object> stepResults,
+    Map<String, StepStatus> stepStatuses,
+    Map<String, Integer> stepAttempts,
+    Map<String, Long> stepLatenciesMs,
+    Map<String, Object> variables,
+    Map<String, String> headers,
+    Set<String> idempotencyKeys,
+    List<List<String>> topologyLayers,
+    String failureReason,
+    Instant startedAt,
+    Instant updatedAt
+) {
+    ExecutionState withStatus(ExecutionStatus newStatus);
+    ExecutionState withFailure(String reason);
+    boolean isTerminal();
+}
+```
+
 ### Custom Persistence Provider
 
 Implement the interface and register as a Spring bean:
@@ -1145,15 +1554,15 @@ The auto-configuration uses `@ConditionalOnMissingBean`, so your custom bean tak
 
 ### Provider Comparison
 
-| Feature | InMemory | Redis | Cache | EventSourced |
-|---------|----------|-------|-------|--------------|
-| Persistence | Process lifetime | Durable | Adapter-dependent | Durable |
-| Query support | Full | Full | Full | Limited |
-| Cleanup | Supported | Supported | Supported | No-op |
-| Clustering | No | Yes | Adapter-dependent | Yes |
-| Performance | Fastest | Fast | Varies | Write-optimized |
+| Feature       | InMemory          | Redis    | Cache            | EventSourced     |
+|---------------|-------------------|----------|------------------|------------------|
+| Persistence   | Process lifetime  | Durable  | Adapter-dependent| Durable          |
+| Query support | Full              | Full     | Full             | Limited          |
+| Cleanup       | Supported         | Supported| Supported        | No-op            |
+| Clustering    | No                | Yes      | Adapter-dependent| Yes              |
+| Performance   | Fastest           | Fast     | Varies           | Write-optimized  |
 
-## 24. Dead-Letter Queue
+## 26. Dead-Letter Queue
 
 Failed executions are automatically sent to the DLQ for later inspection and retry.
 
@@ -1163,26 +1572,43 @@ Failed executions are automatically sent to the DLQ for later inspection and ret
 firefly:
   orchestration:
     dlq:
-      enabled: true    # default
+      enabled: true
 ```
 
 ### DeadLetterEntry Record
 
 ```java
 record DeadLetterEntry(
-    String id,                    // unique DLQ entry ID
-    String executionName,         // saga/workflow/tcc name
-    String correlationId,         // execution correlation ID
-    ExecutionPattern pattern,     // WORKFLOW, SAGA, or TCC
-    String failedStepId,          // which step failed
-    ExecutionStatus status,       // FAILED
-    String errorMessage,          // error description
-    String errorType,             // exception class name
-    Map<String, Object> metadata, // additional context
-    int retryCount,               // number of retry attempts
+    String id,                       // unique DLQ entry ID (UUID)
+    String executionName,            // saga/workflow/tcc name
+    String correlationId,            // execution correlation ID
+    ExecutionPattern pattern,        // WORKFLOW, SAGA, or TCC
+    String stepId,                   // which step/participant failed
+    ExecutionStatus statusAtFailure, // status when failure occurred
+    String errorMessage,             // error description
+    String errorType,                // exception class name
+    Map<String, Object> input,       // execution inputs captured at failure
+    int retryCount,                  // number of retry attempts
     Instant createdAt,
-    Instant updatedAt
+    Instant lastRetriedAt
 )
+```
+
+Factory method: `DeadLetterEntry.create(executionName, correlationId, pattern, stepId, statusAtFailure, error, input)`
+
+### DeadLetterService
+
+```java
+public class DeadLetterService {
+    Mono<Void> deadLetter(DeadLetterEntry entry);
+    Flux<DeadLetterEntry> getAllEntries();
+    Mono<Optional<DeadLetterEntry>> getEntry(String id);
+    Flux<DeadLetterEntry> getByExecutionName(String name);
+    Flux<DeadLetterEntry> getByCorrelationId(String correlationId);
+    Mono<Void> deleteEntry(String id);
+    Mono<Long> count();
+    Mono<DeadLetterEntry> markRetried(String id);
+}
 ```
 
 ### DLQ REST Endpoints
@@ -1200,56 +1626,76 @@ DELETE /api/orchestration/dlq/{id}     # remove an entry
 public class JdbcDeadLetterStore implements DeadLetterStore {
     Mono<Void> save(DeadLetterEntry entry);
     Mono<Optional<DeadLetterEntry>> findById(String id);
-    Mono<Void> delete(String id);
     Flux<DeadLetterEntry> findAll();
-    Flux<DeadLetterEntry> findByExecutionName(String name);
+    Flux<DeadLetterEntry> findByExecutionName(String executionName);
+    Flux<DeadLetterEntry> findByCorrelationId(String correlationId);
+    Mono<Void> delete(String id);
     Mono<Long> count();
-    Mono<Void> markRetried(String id);
 }
 ```
 
-## 25. Observability (Events, Metrics, Tracing)
+### When Entries Are Created
+
+- **Saga:** One DLQ entry per failed step (each with its own `stepId`)
+- **TCC:** One DLQ entry for the failed transaction (only for `FAILED` status, not `CANCELED`)
+- **Workflow:** One DLQ entry per failed step when the step exhausts all retries
+
+## 27. Observability (Events, Metrics, Tracing)
 
 ### OrchestrationEvents Interface
 
-All orchestration lifecycle events flow through this interface. The default `CompositeOrchestrationEvents` fans out to all registered delegates.
+All orchestration lifecycle events flow through this interface. Every method has a default no-op implementation, so you only override what you need. The `CompositeOrchestrationEvents` auto-configuration collects all `OrchestrationEvents` beans and fans out to each one with per-delegate error isolation.
 
 **Lifecycle events (all patterns):**
 
-| Event | When It Fires |
-|-------|---------------|
-| `onStart` | Execution begins |
-| `onStepStarted` | A step begins execution |
-| `onStepSuccess` | A step completes successfully |
-| `onStepFailed` | A step fails after all retries |
-| `onStepSkipped` | A step is skipped (condition not met) |
-| `onCompleted` | Execution completes (success or failure) |
+| Method | When It Fires |
+|--------|---------------|
+| `onStart(name, correlationId, pattern)` | Execution begins |
+| `onStepStarted(name, correlationId, stepId)` | A step begins execution |
+| `onStepSuccess(name, correlationId, stepId, attempts, latencyMs)` | A step completes successfully |
+| `onStepFailed(name, correlationId, stepId, error, attempts)` | A step fails after all retries |
+| `onStepSkipped(name, correlationId, stepId)` | A step is skipped (condition not met or dry-run) |
+| `onStepSkippedIdempotent(name, correlationId, stepId)` | A step is skipped due to idempotency key |
+| `onCompleted(name, correlationId, pattern, success, durationMs)` | Execution completes |
+| `onDeadLettered(name, correlationId, stepId, error)` | An entry is added to the DLQ |
 
 **Saga-specific:**
 
-| Event | When It Fires |
-|-------|---------------|
-| `onCompensationStarted` | Compensation phase begins |
-| `onStepCompensated` | A step's compensation succeeds |
-| `onStepCompensationFailed` | A step's compensation fails |
+| Method | When It Fires |
+|--------|---------------|
+| `onCompensationStarted(name, correlationId)` | Compensation phase begins |
+| `onStepCompensated(name, correlationId, stepId)` | A step's compensation succeeds |
+| `onStepCompensationFailed(name, correlationId, stepId, error)` | A step's compensation fails |
 
 **TCC-specific:**
 
-| Event | When It Fires |
-|-------|---------------|
-| `onPhaseStarted` | TRY/CONFIRM/CANCEL phase begins |
-| `onPhaseCompleted` | A phase completes successfully |
-| `onPhaseFailed` | A phase fails |
-| `onParticipantStarted` | A participant begins a phase |
-| `onParticipantSuccess` | A participant completes a phase |
-| `onParticipantFailed` | A participant fails a phase |
+| Method | When It Fires |
+|--------|---------------|
+| `onPhaseStarted(name, correlationId, phase)` | TRY/CONFIRM/CANCEL phase begins |
+| `onPhaseCompleted(name, correlationId, phase, durationMs)` | A phase completes successfully |
+| `onPhaseFailed(name, correlationId, phase, error)` | A phase fails |
+| `onParticipantStarted(name, correlationId, participantId, phase)` | A participant begins a phase |
+| `onParticipantSuccess(name, correlationId, participantId, phase)` | A participant completes a phase |
+| `onParticipantFailed(name, correlationId, participantId, phase, error)` | A participant fails a phase |
 
 **Workflow-specific:**
 
-| Event | When It Fires |
-|-------|---------------|
-| `onWorkflowSuspended` | A workflow is suspended |
-| `onWorkflowResumed` | A workflow is resumed |
+| Method | When It Fires |
+|--------|---------------|
+| `onWorkflowSuspended(name, correlationId, reason)` | A workflow is suspended |
+| `onWorkflowResumed(name, correlationId)` | A workflow is resumed |
+| `onSignalDelivered(name, correlationId, signalName)` | A signal is delivered |
+| `onTimerFired(name, correlationId, timerId)` | A timer fires |
+| `onChildWorkflowStarted(parentName, parentCorrId, childWorkflowId, childCorrId)` | A child workflow starts |
+| `onChildWorkflowCompleted(parentName, parentCorrId, childCorrId, success)` | A child workflow completes |
+| `onContinueAsNew(name, oldCorrId, newCorrId)` | Workflow continues as new execution |
+
+**Composition:**
+
+| Method | When It Fires |
+|--------|---------------|
+| `onCompositionStarted(compositionName, correlationId)` | Cross-pattern composition begins |
+| `onCompositionCompleted(compositionName, correlationId, success)` | Composition completes |
 
 ### Custom Event Listener
 
@@ -1267,50 +1713,101 @@ public class SlackNotifier implements OrchestrationEvents {
 }
 ```
 
-The `CompositeOrchestrationEvents` automatically picks up all `OrchestrationEvents` beans and fans out to each one with per-delegate error isolation.
-
 ### Metrics (Micrometer)
 
-Enabled automatically when a `MeterRegistry` is on the classpath:
+Enabled automatically when a `MeterRegistry` is on the classpath. All metrics use the `firefly.orchestration` prefix.
 
 ```yaml
 firefly:
   orchestration:
     metrics:
-      enabled: true   # default when MeterRegistry present
+      enabled: true
 ```
-
-Metrics published:
 
 | Metric | Type | Tags |
 |--------|------|------|
-| `orchestration.execution.started` | Counter | name, pattern |
-| `orchestration.execution.completed` | Counter | name, pattern, success |
-| `orchestration.execution.duration` | Timer | name, pattern |
-| `orchestration.step.started` | Counter | name, stepId |
-| `orchestration.step.completed` | Counter | name, stepId, success |
-| `orchestration.step.duration` | Timer | name, stepId |
-| `orchestration.compensation.started` | Counter | name |
-| `orchestration.compensation.completed` | Counter | name, stepId |
+| `firefly.orchestration.executions.started` | Counter | name, pattern |
+| `firefly.orchestration.executions.completed` | Counter | name, pattern, success |
+| `firefly.orchestration.executions.duration` | Timer | name, pattern |
+| `firefly.orchestration.steps.completed` | Counter | name, stepId, success |
+| `firefly.orchestration.steps.duration` | Timer | name, stepId |
+| `firefly.orchestration.steps.retries` | Counter | name, stepId |
+| `firefly.orchestration.compensations.started` | Counter | name |
+| `firefly.orchestration.dlq.entries` | Counter | name |
 
 ### Tracing (Micrometer Observation)
 
-Enabled automatically when an `ObservationRegistry` is on the classpath:
+Enabled automatically when an `ObservationRegistry` is on the classpath.
 
 ```yaml
 firefly:
   orchestration:
     tracing:
-      enabled: true   # default when ObservationRegistry present
+      enabled: true
 ```
 
-Creates spans for:
-- Overall execution
-- Each step execution
-- Compensation phases
-- TCC phase transitions
+The `OrchestrationTracer` creates spans for:
 
-## 26. REST API
+- **Execution-level:** Observation name `orchestration.execution` with tags `orchestration.name`, `orchestration.pattern`, `orchestration.correlationId`
+- **Step-level:** Observation name `orchestration.step` with tags `orchestration.name`, `orchestration.step`, `orchestration.correlationId`
+
+```java
+tracer.traceExecution(name, pattern, correlationId, mono);
+tracer.traceStep(executionName, stepId, correlationId, mono);
+```
+
+## 28. Lifecycle Callbacks
+
+All three patterns support lifecycle callbacks for success and error handling.
+
+### Saga Callbacks
+
+```java
+@OnSagaComplete(async = false, priority = 0)
+public void onComplete(ExecutionContext ctx, SagaResult result) { ... }
+
+@OnSagaError(errorTypes = {TimeoutException.class}, suppressError = false, async = false)
+public void onError(Throwable error, ExecutionContext ctx) { ... }
+```
+
+**@OnSagaComplete** receives both `ExecutionContext` and `SagaResult` via automatic argument resolution. Either parameter is optional -- you can declare just one or both in any order.
+
+**@OnSagaError** receives `Throwable` and `ExecutionContext`. The `errorTypes` attribute filters which exceptions trigger the callback. When `suppressError = true`, the saga result is converted to a success result (useful for fallback behavior).
+
+### TCC Callbacks
+
+```java
+@OnTccComplete(async = false, priority = 0)
+public void onComplete(ExecutionContext ctx, TccResult result) { ... }
+
+@OnTccError(errorTypes = {}, suppressError = false, async = false)
+public void onError(Throwable error, ExecutionContext ctx) { ... }
+```
+
+Same semantics as saga callbacks. `@OnTccComplete` receives `TccResult` when declared as a parameter.
+
+### Workflow Callbacks
+
+```java
+@OnWorkflowComplete(async = false, priority = 0)
+public void onComplete(ExecutionContext ctx) { ... }
+
+@OnWorkflowError(errorTypes = {}, stepIds = {}, suppressError = false, async = false)
+public void onError(Throwable error, ExecutionContext ctx) { ... }
+```
+
+`@OnWorkflowError` has an additional `stepIds` attribute to filter by which steps caused the error.
+
+### Common Attributes
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `async` | boolean | `false` | Run callback on bounded-elastic scheduler |
+| `priority` | int | `0` | Ordering (lower = earlier) |
+| `errorTypes` | Class[] | `{}` | Filter by exception type (error callbacks only) |
+| `suppressError` | boolean | `false` | Convert failure to success (error callbacks only) |
+
+## 29. REST API
 
 ### Endpoints
 
@@ -1320,7 +1817,7 @@ Enabled by default when running a reactive web application:
 firefly:
   orchestration:
     rest:
-      enabled: true    # default
+      enabled: true
 ```
 
 | Method | Path | Description |
@@ -1337,12 +1834,12 @@ firefly:
 firefly:
   orchestration:
     health:
-      enabled: true    # default
+      enabled: true
 ```
 
 Reports `UP` when persistence is healthy, `DOWN` otherwise. Visible at `/actuator/health`.
 
-## 27. Recovery Service
+## 30. Recovery Service
 
 Detects and reports stale executions (started but never completed):
 
@@ -1351,10 +1848,10 @@ firefly:
   orchestration:
     recovery:
       enabled: true
-      stale-threshold: 1h    # executions older than this are considered stale
+      stale-threshold: 1h
     persistence:
-      retention-period: 7d   # completed executions older than this are cleaned up
-      cleanup-interval: 1h   # how often cleanup runs
+      retention-period: 7d
+      cleanup-interval: 1h
 ```
 
 ### Programmatic Access
@@ -1362,30 +1859,28 @@ firefly:
 ```java
 @Autowired RecoveryService recoveryService;
 
-// Find stale executions
 recoveryService.findStaleExecutions()
     .subscribe(state -> log.warn("Stale execution: {}", state.correlationId()));
 
-// Clean up old completed executions
 recoveryService.cleanupCompletedExecutions(Duration.ofDays(30))
     .subscribe(count -> log.info("Cleaned up {} executions", count));
 ```
 
-## 28. Exception Hierarchy
+## 31. Exception Hierarchy
 
 All orchestration exceptions extend the sealed `OrchestrationException`:
 
 ```
 OrchestrationException (sealed)
-├── ExecutionNotFoundException       — workflow/saga/tcc ID not found
-├── StepExecutionException           — step method invocation failed
-│     └── getStepId()                — which step failed
-├── TopologyValidationException      — DAG has cycles, missing deps, etc.
-├── DuplicateDefinitionException     — two definitions share the same name
-├── ExecutionTimeoutException        — execution or step timed out
-├── CompensationException            — saga compensation step failed
-└── TccPhaseException                — TCC Try/Confirm/Cancel phase error
-      └── getPhase()                 — which phase (TRY, CONFIRM, CANCEL)
++-- ExecutionNotFoundException       -- workflow/saga/tcc ID not found
++-- StepExecutionException           -- step method invocation failed
+|     getStepId()                    -- which step failed
++-- TopologyValidationException      -- DAG has cycles, missing deps, etc.
++-- DuplicateDefinitionException     -- two definitions share the same name
++-- ExecutionTimeoutException        -- execution or step timed out
++-- CompensationException            -- saga compensation step failed
++-- TccPhaseException                -- TCC Try/Confirm/Cancel phase error
+      getPhase()                     -- which phase (TRY, CONFIRM, CANCEL)
 ```
 
 Each exception carries an error code (e.g., `ORCHESTRATION_STEP_EXECUTION_ERROR`) for programmatic error handling.
@@ -1394,7 +1889,7 @@ Each exception carries an error code (e.g., `ORCHESTRATION_STEP_EXECUTION_ERROR`
 
 # Part VI: Configuration Reference
 
-## 29. All Configuration Properties
+## 32. All Configuration Properties
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
@@ -1406,7 +1901,7 @@ Each exception carries an error code (e.g., `ORCHESTRATION_STEP_EXECUTION_ERROR`
 | `firefly.orchestration.tcc.default-timeout` | Duration | `30s` | Default TCC timeout |
 | `firefly.orchestration.persistence.provider` | string | `in-memory` | Persistence adapter |
 | `firefly.orchestration.persistence.key-prefix` | string | `orchestration:` | Redis/cache key prefix |
-| `firefly.orchestration.persistence.key-ttl` | Duration | — | Optional Redis key TTL |
+| `firefly.orchestration.persistence.key-ttl` | Duration | -- | Optional Redis key TTL |
 | `firefly.orchestration.persistence.retention-period` | Duration | `7d` | Completed execution retention |
 | `firefly.orchestration.persistence.cleanup-interval` | Duration | `1h` | Cleanup task interval |
 | `firefly.orchestration.recovery.enabled` | boolean | `true` | Enable stale execution detection |
@@ -1419,7 +1914,7 @@ Each exception carries an error code (e.g., `ORCHESTRATION_STEP_EXECUTION_ERROR`
 | `firefly.orchestration.dlq.enabled` | boolean | `true` | Enable dead-letter queue |
 | `firefly.orchestration.resilience.enabled` | boolean | `true` | Enable Resilience4j integration |
 
-## 30. Auto-Configuration Chain
+## 33. Auto-Configuration Chain
 
 The module's auto-configurations load in a specific order to ensure dependencies are available:
 
@@ -1430,35 +1925,37 @@ The module's auto-configurations load in a specific order to ensure dependencies
 ### Phase 2: Core Infrastructure
 
 `OrchestrationAutoConfiguration` creates:
-1. `ArgumentResolver` — parameter injection
-2. `StepInvoker` — reflective method invocation with retry
-3. `OrchestrationLoggerEvents` — SLF4J event logging
-4. `OrchestrationEvents` — composite fan-out (wraps all event delegates)
-5. `ExecutionPersistenceProvider` — InMemory fallback if none exists
-6. `DeadLetterStore` + `DeadLetterService` — DLQ
-7. `OrchestrationEventPublisher` — domain event publishing (no-op default)
-8. `OrchestrationScheduler` — scheduled task executor
-9. `RecoveryService` — stale execution detection
+
+1. `ArgumentResolver` -- parameter injection
+2. `StepInvoker` -- reflective method invocation with retry
+3. `OrchestrationLoggerEvents` -- SLF4J event logging
+4. `OrchestrationEvents` -- composite fan-out (wraps all event delegates)
+5. `ExecutionPersistenceProvider` -- InMemory fallback if none exists
+6. `DeadLetterStore` + `DeadLetterService` -- DLQ
+7. `OrchestrationEventPublisher` -- domain event publishing (no-op default)
+8. `OrchestrationScheduler` -- scheduled task executor
+9. `RecoveryService` -- stale execution detection
 
 ### Phase 3: Pattern Engines (after core)
 
 Each enabled pattern creates its registry, orchestrator, and engine:
-- `WorkflowAutoConfiguration` → `WorkflowRegistry`, `WorkflowExecutor`, `WorkflowEngine`
-- `SagaAutoConfiguration` → `SagaRegistry`, `SagaExecutionOrchestrator`, `SagaCompensator`, `SagaEngine`
-- `TccAutoConfiguration` → `TccRegistry`, `TccExecutionOrchestrator`, `TccEngine`
+
+- `WorkflowAutoConfiguration` creates `WorkflowRegistry`, `WorkflowExecutor`, `WorkflowEngine`
+- `SagaAutoConfiguration` creates `SagaRegistry`, `SagaExecutionOrchestrator`, `SagaCompensator`, `SagaEngine`
+- `TccAutoConfiguration` creates `TccRegistry`, `TccExecutionOrchestrator`, `TccEngine`
 
 ### Phase 4: Extensions (after core)
 
-- `OrchestrationMetricsAutoConfiguration` — if `MeterRegistry` on classpath
-- `OrchestrationTracingAutoConfiguration` — if `ObservationRegistry` on classpath
-- `OrchestrationResilienceAutoConfiguration` — if `CircuitBreakerRegistry` on classpath
-- `OrchestrationRestAutoConfiguration` — if reactive web application
+- `OrchestrationMetricsAutoConfiguration` -- if `MeterRegistry` on classpath
+- `OrchestrationTracingAutoConfiguration` -- if `ObservationRegistry` on classpath
+- `OrchestrationResilienceAutoConfiguration` -- if `CircuitBreakerRegistry` on classpath
+- `OrchestrationRestAutoConfiguration` -- if reactive web application
 
 ---
 
-# Part VII: Recipes & Patterns
+# Part VII: Recipes and Patterns
 
-## 31. Cross-Pattern Composition
+## 34. Cross-Pattern Composition
 
 You can compose patterns by chaining them. For example, a Saga that triggers a TCC for a specific step:
 
@@ -1474,14 +1971,10 @@ public class OrderService {
             .flatMap(sagaResult -> {
                 if (!sagaResult.isSuccess()) return Mono.just(sagaResult);
 
-                // If saga succeeded, run TCC for payment
                 return tccEngine.execute("PaymentTcc",
                     TccInputs.of("charge", order))
                     .map(tccResult -> {
-                        if (tccResult.isConfirmed()) {
-                            return sagaResult; // both succeeded
-                        }
-                        // TCC failed — you may want to compensate the saga
+                        if (tccResult.isConfirmed()) return sagaResult;
                         throw new RuntimeException("Payment TCC failed");
                     });
             });
@@ -1502,7 +1995,7 @@ sagaEngine.execute("ValidateOrder", StepInputs.empty(), ctx)
     .flatMap(r2 -> sagaEngine.execute("FulfillOrder", StepInputs.empty(), ctx));
 ```
 
-## 32. Testing Your Orchestrations
+## 35. Testing Your Orchestrations
 
 ### Unit Testing Steps
 
@@ -1524,7 +2017,7 @@ void debitAccount_succeeds() {
 }
 ```
 
-### Integration Testing with Real Engine
+### Integration Testing with Builder DSL
 
 ```java
 @Test
@@ -1540,14 +2033,12 @@ void saga_fullExecution_success() {
             .add()
         .build();
 
-    var registry = new SagaRegistry();
-    registry.register(def);
     var events = new OrchestrationEvents() {};
     var invoker = new StepInvoker(new ArgumentResolver());
-    var orchestrator = new SagaExecutionOrchestrator(invoker, events);
+    var noOpPublisher = new NoOpEventPublisher();
+    var orchestrator = new SagaExecutionOrchestrator(invoker, events, noOpPublisher);
     var compensator = new SagaCompensator(events, CompensationPolicy.STRICT_SEQUENTIAL, invoker);
-    var engine = new SagaEngine(registry, events,
-        orchestrator, null, null, compensator);
+    var engine = new SagaEngine(null, events, orchestrator, null, null, compensator, noOpPublisher);
 
     StepVerifier.create(engine.execute(def, StepInputs.empty()))
         .assertNext(result -> {
@@ -1579,7 +2070,7 @@ void saga_stepFailure_triggersCompensation() {
             .add()
         .build();
 
-    // ... create engine as above ...
+    // ... create engine ...
 
     StepVerifier.create(engine.execute(def, StepInputs.empty()))
         .assertNext(result -> {
@@ -1622,40 +2113,46 @@ void tcc_tryFailure_triggersCancel() {
 }
 ```
 
-## 33. Production Checklist
+## 36. Production Checklist
 
 Before going to production, verify:
 
 ### Persistence
+
 - [ ] Switch from `in-memory` to `redis` or another durable provider
 - [ ] Configure `retention-period` and `cleanup-interval`
 - [ ] Test persistence failover behavior
 
 ### Observability
+
 - [ ] Enable metrics (`firefly.orchestration.metrics.enabled=true`)
 - [ ] Enable tracing (`firefly.orchestration.tracing.enabled=true`)
 - [ ] Add custom `OrchestrationEvents` listener for alerting
-- [ ] Set up dashboards for `orchestration.execution.*` metrics
+- [ ] Set up dashboards for `firefly.orchestration.executions.*` metrics
 
 ### Resilience
-- [ ] Configure per-step timeouts (don't rely on global defaults)
+
+- [ ] Configure per-step timeouts (do not rely on global defaults)
 - [ ] Set appropriate retry counts and backoff delays
 - [ ] Mark critical compensations with `compensationCritical = true`
 - [ ] Choose the right compensation policy for your use case
 - [ ] Test failure scenarios: step failure, timeout, partial completion
 
 ### Dead-Letter Queue
+
 - [ ] Monitor DLQ entry count (`/api/orchestration/dlq/count`)
 - [ ] Set up alerts for DLQ growth
 - [ ] Implement DLQ entry retry/resolution process
 - [ ] Consider a durable `DeadLetterStore` implementation
 
 ### Security
+
 - [ ] Restrict REST endpoints with Spring Security
 - [ ] Audit who triggers orchestrations (`triggeredBy` parameter)
 - [ ] Sanitize step inputs/outputs (no sensitive data in persistence/DLQ)
 
 ### Testing
+
 - [ ] Unit test each step method in isolation
 - [ ] Integration test full saga/workflow/TCC flows
 - [ ] Test compensation flows (verify rollback works)

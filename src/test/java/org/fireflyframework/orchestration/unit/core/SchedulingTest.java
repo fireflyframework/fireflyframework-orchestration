@@ -134,7 +134,7 @@ class SchedulingTest {
         processor.afterSingletonsInstantiated();
 
         verify(spyScheduler).scheduleAtFixedRate(
-                eq("saga:scheduled-saga:rate"), any(Runnable.class), eq(1000L), eq(1000L));
+                eq("saga:scheduled-saga:rate"), any(Runnable.class), eq(0L), eq(1000L));
     }
 
     @Test
@@ -168,7 +168,7 @@ class SchedulingTest {
         processor.afterSingletonsInstantiated();
 
         verify(spyScheduler).scheduleAtFixedRate(
-                eq("saga:multi-saga:rate"), any(Runnable.class), eq(2000L), eq(2000L));
+                eq("saga:multi-saga:rate"), any(Runnable.class), eq(0L), eq(2000L));
         verify(spyScheduler).scheduleWithCron(
                 eq("saga:multi-saga:cron"), any(Runnable.class), eq("0 0 * * * *"));
     }
@@ -202,7 +202,7 @@ class SchedulingTest {
         processor.afterSingletonsInstantiated();
 
         verify(spyScheduler).scheduleAtFixedRate(
-                eq("tcc:scheduled-tcc:rate"), any(Runnable.class), eq(500L), eq(500L));
+                eq("tcc:scheduled-tcc:rate"), any(Runnable.class), eq(0L), eq(500L));
     }
 
     @Test
@@ -236,7 +236,7 @@ class SchedulingTest {
         processor.afterSingletonsInstantiated();
 
         verify(spyScheduler).scheduleAtFixedRate(
-                eq("workflow:scheduled-wf:rate"), any(Runnable.class), eq(3000L), eq(3000L));
+                eq("workflow:scheduled-wf:rate"), any(Runnable.class), eq(0L), eq(3000L));
     }
 
     @Test
@@ -270,7 +270,7 @@ class SchedulingTest {
         processor.afterSingletonsInstantiated();
 
         verify(spyScheduler).scheduleWithFixedDelay(
-                eq("workflow:delay-wf:delay"), any(Runnable.class), eq(2000L), eq(2000L));
+                eq("workflow:delay-wf:delay"), any(Runnable.class), eq(0L), eq(2000L));
     }
 
     @Test

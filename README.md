@@ -1,50 +1,91 @@
-# Firefly Framework :: Orchestration
+# Firefly Framework Orchestration
 
-A unified, reactive orchestration engine for Spring Boot applications that brings three distributed transaction patterns — **Workflow**, **Saga**, and **TCC** (Try-Confirm-Cancel) — under a single, coherent API.
+**A unified, reactive orchestration engine for distributed transactions in Spring Boot applications.**
 
-Modern microservice architectures break business operations into multiple service calls, and coordinating those calls reliably is one of the hardest problems in distributed systems. This module solves that problem by providing a reactive orchestration layer built on **Project Reactor** that handles execution ordering, failure recovery, automatic compensation, persistence, observability, event integration, and scheduling — so your application code focuses purely on business logic.
+Three patterns -- Workflow, Saga, and TCC (Try-Confirm-Cancel) -- share a common core of persistence, observability, event integration, scheduling, and argument injection. Define orchestrations with annotations or a fluent builder DSL, and let the engine handle execution ordering, failure recovery, automatic compensation, and dead-letter routing.
 
-## Why Firefly Orchestration?
+| | |
+|---|---|
+| **Group** | `org.fireflyframework` |
+| **Artifact** | `fireflyframework-orchestration` |
+| **Version** | `26.02.06` |
+| **Java** | 25+ |
+| **Spring Boot** | 3.x |
+| **Reactor** | 3.x |
+| **License** | Apache 2.0 |
 
-- **One module, three patterns.** Instead of adopting separate libraries for workflow orchestration, saga coordination, and TCC transactions, Firefly Orchestration provides all three patterns sharing a common core infrastructure. Learn one set of concepts (execution context, argument injection, retry policies, persistence) and apply them across all patterns.
+---
 
-- **Reactive from top to bottom.** Every method returns `Mono` or `Flux`. There are no blocking calls, no thread-pool exhaustion under load, and natural backpressure handling. Thousands of concurrent orchestrations run efficiently on a small thread pool.
+## Table of Contents
 
-- **Event-driven by design.** Orchestrations can be triggered by external events (`triggerEventType` + `EventGateway`) and can publish events when steps complete (`@StepEvent`, `@TccEvent`, `publishEvents`). This lets orchestrations participate in larger event-driven architectures without tight coupling.
+- [Why Firefly Orchestration](#why-firefly-orchestration)
+- [Features](#features)
+- [Getting Started](#getting-started)
+  - [Add the Dependency](#add-the-dependency)
+  - [Saga Example (Annotations)](#saga-example-annotations)
+  - [Saga Example (Builder DSL)](#saga-example-builder-dsl)
+  - [TCC Example](#tcc-example)
+  - [Workflow Example](#workflow-example)
+- [Architecture](#architecture)
+- [Pattern Selection Guide](#pattern-selection-guide)
+- [Event Integration](#event-integration)
+- [Scheduling](#scheduling)
+- [Configuration Reference](#configuration-reference)
+- [Documentation](#documentation)
+- [License](#license)
 
-- **Zero-config to production-ready.** Spring Boot auto-configuration provides sensible defaults for development (in-memory persistence, SLF4J logging, DLQ enabled). For production, plug in Redis persistence, Micrometer metrics, distributed tracing, and Resilience4j circuit breakers — all through configuration properties and Spring beans.
+---
+
+## Why Firefly Orchestration
+
+**One module, three patterns.** Instead of adopting separate libraries for workflow orchestration, saga coordination, and TCC transactions, Firefly Orchestration provides all three sharing a common core. Learn one set of concepts -- execution context, argument injection, retry policies, persistence -- and apply them across all patterns.
+
+**Reactive from top to bottom.** Every engine method returns `Mono` or `Flux`. There are no blocking calls, no thread-pool exhaustion under load, and natural backpressure handling. Thousands of concurrent orchestrations run efficiently on a small thread pool.
+
+**Event-driven by design.** Orchestrations can be triggered by external events via `triggerEventType` and `EventGateway`, and can publish events when steps complete via `@StepEvent`, `@TccEvent`, and `publishEvents`. This lets orchestrations participate in larger event-driven architectures without tight coupling.
+
+**Zero-config to production-ready.** Spring Boot auto-configuration provides sensible defaults for development (in-memory persistence, SLF4J logging, DLQ enabled). For production, plug in Redis persistence, Micrometer metrics, distributed tracing, and Resilience4j circuit breakers through configuration properties and Spring beans.
+
+---
 
 ## Features
 
 ### Core Capabilities
-- **DAG-based execution** — Kahn's algorithm for topological ordering with parallel layer support
-- **Five compensation policies** — STRICT_SEQUENTIAL, GROUPED_PARALLEL, RETRY_WITH_BACKOFF, CIRCUIT_BREAKER, BEST_EFFORT_PARALLEL
-- **Two definition styles** — annotation-driven (`@Saga`, `@Workflow`, `@Tcc`) and programmatic builder DSL
-- **Retry with backoff** — per-step retry policies with exponential backoff and jitter
-- **Fan-out (ExpandEach)** — dynamically clone saga steps per input item
+
+- **DAG-based execution** -- Kahn's algorithm for topological ordering with parallel layer support
+- **Five compensation policies** -- STRICT_SEQUENTIAL, GROUPED_PARALLEL, RETRY_WITH_BACKOFF, CIRCUIT_BREAKER, BEST_EFFORT_PARALLEL
+- **Two definition styles** -- annotation-driven (`@Saga`, `@Workflow`, `@Tcc`) and programmatic builder DSL (`SagaBuilder`, `WorkflowBuilder`, `TccBuilder`)
+- **Retry with backoff** -- per-step retry policies with exponential backoff and jitter
+- **Fan-out (ExpandEach)** -- dynamically clone saga steps per input item
 
 ### Event Integration
-- **Event-driven triggering** — `triggerEventType` routes external events through the `EventGateway` to start executions
-- **Event publishing** — `@StepEvent` (Saga), `@TccEvent` (TCC), `publishEvents` (Workflow) emit events to downstream systems
-- **Lifecycle callbacks** — `@OnWorkflowComplete`, `@OnSagaComplete`, `@OnTccComplete` and error variants with priority ordering, error type filtering, and error suppression
+
+- **Event-driven triggering** -- `triggerEventType` routes external events through `EventGateway` to start executions (annotation and builder)
+- **Step-level event publishing** -- `@StepEvent` (Saga), `@TccEvent` (TCC), `publishEvents` (Workflow)
+- **Lifecycle callbacks** -- `@OnWorkflowComplete`, `@OnSagaComplete`, `@OnTccComplete` and error variants with priority ordering, error type filtering, error suppression, and result injection
 
 ### Workflow-Specific
-- **Lifecycle management** — suspend, resume, and cancel running workflows
-- **Signal and timer gates** — `@WaitForSignal` and `@WaitForTimer` for external event coordination and timed delays
-- **Dry run mode** — traverse the DAG without executing step logic (all steps marked SKIPPED)
-- **SpEL conditions** — conditional step execution based on runtime expressions
-- **Compensatable steps** — `compensatable` and `compensationMethod` on `@WorkflowStep`
+
+- **Lifecycle management** -- suspend, resume, and cancel running workflows
+- **Signal and timer gates** -- `@WaitForSignal` and `@WaitForTimer` for external event coordination and timed delays
+- **Dry-run mode** -- traverse the DAG without executing step logic (all steps marked SKIPPED)
+- **SpEL conditions** -- conditional step execution based on runtime expressions
+- **Compensatable steps** -- per-step compensation with `compensatable` and `compensationMethod`
 
 ### Infrastructure
-- **Pluggable persistence** — InMemory, Redis, Cache, and Event-Sourced adapters
-- **Full observability** — structured logging, Micrometer metrics, distributed tracing
-- **Dead-letter queue** — automatic DLQ capture for failed executions
-- **Cron scheduling** — `@ScheduledWorkflow`, `@ScheduledSaga`, `@ScheduledTcc` with cron, fixedDelay, fixedRate
-- **Spring Boot auto-configuration** — zero-config defaults, full customization via properties
 
-## Quick Start
+- **Pluggable persistence** -- InMemory (default), Redis, Cache, and Event-Sourced adapters
+- **Full observability** -- structured logging, 8 Micrometer metrics, distributed tracing via Observation API
+- **Dead-letter queue** -- automatic DLQ capture for failed executions with retry tracking
+- **Cron scheduling** -- `@ScheduledWorkflow`, `@ScheduledSaga`, `@ScheduledTcc` with cron, fixedDelay, fixedRate, zone, initialDelay, and input
+- **12 argument injection annotations** -- `@Input`, `@FromStep`, `@FromTry`, `@Variable`, `@Header`, `@CorrelationId`, and more
+- **Spring Boot auto-configuration** -- zero-config defaults, full customization via properties
 
-### 1. Add the Dependency
+---
+
+## Getting Started
+
+### Add the Dependency
 
 ```xml
 <dependency>
@@ -54,7 +95,7 @@ Modern microservice architectures break business operations into multiple servic
 </dependency>
 ```
 
-### 2. Define a Saga (Annotation-Driven)
+### Saga Example (Annotations)
 
 ```java
 @Saga(name = "OrderSaga")
@@ -77,30 +118,37 @@ public class OrderSaga {
     public Mono<Void> refund(@Input String chargeId) {
         return paymentService.refund(chargeId);
     }
-}
-```
 
-### 3. Execute It
-
-```java
-@Service
-public class OrderService {
-    private final SagaEngine sagaEngine;
-
-    public Mono<SagaResult> placeOrder(OrderRequest request) {
-        return sagaEngine.execute("OrderSaga",
-            StepInputs.of("reserve", request));
+    @OnSagaComplete
+    public void onComplete(SagaResult result) {
+        log.info("Order saga completed: {}", result.correlationId());
     }
 }
 ```
 
-### 4. Or Use the Builder DSL
+Execute it:
+
+```java
+sagaEngine.execute("OrderSaga", StepInputs.of("reserve", orderRequest))
+    .subscribe(result -> {
+        if (result.isSuccess()) {
+            log.info("All steps completed in {}ms", result.duration().toMillis());
+        } else {
+            log.error("Failed at step: {}", result.firstErrorStepId().orElse("unknown"));
+        }
+    });
+```
+
+### Saga Example (Builder DSL)
 
 ```java
 SagaDefinition def = SagaBuilder.saga("TransferFunds")
+    .triggerEventType("TransferRequested")
     .step("debit")
         .handler((input, ctx) -> accountService.debit(input))
         .compensation((result, ctx) -> accountService.credit(result))
+        .retry(3).backoffMs(500).jitter()
+        .stepEvent("transfers", "DebitCompleted", "accountId")
         .add()
     .step("credit")
         .dependsOn("debit")
@@ -111,11 +159,163 @@ SagaDefinition def = SagaBuilder.saga("TransferFunds")
 sagaEngine.execute(def, StepInputs.of("debit", transferRequest));
 ```
 
-## Documentation
+### TCC Example
 
-For the complete reference guide covering all three patterns with step-by-step tutorials, configuration options, and architecture details, see **[docs/reference-guide.md](docs/reference-guide.md)**.
+```java
+TccDefinition def = TccBuilder.tcc("PaymentTransaction")
+    .triggerEventType("PaymentRequested")
+    .participant("debit")
+        .tryHandler((input, ctx) -> accountService.holdFunds(input))
+        .confirmHandler((tryResult, ctx) -> accountService.commitHold(tryResult))
+        .cancelHandler((tryResult, ctx) -> accountService.releaseHold(tryResult))
+        .event("payments", "DebitConfirmed", "holdId")
+        .add()
+    .participant("credit")
+        .tryHandler((input, ctx) -> accountService.prepareCredit(input))
+        .confirmHandler((tryResult, ctx) -> accountService.commitCredit(tryResult))
+        .cancelHandler((tryResult, ctx) -> accountService.cancelCredit(tryResult))
+        .add()
+    .build();
 
-## Configuration
+tccEngine.execute(def, TccInputs.of(Map.of("debit", request, "credit", request)))
+    .subscribe(result -> {
+        if (result.isConfirmed()) log.info("Transaction confirmed");
+        else if (result.isCanceled()) log.warn("Transaction canceled");
+    });
+```
+
+### Workflow Example
+
+```java
+@Workflow(id = "OrderProcessing", version = "1.0",
+          publishEvents = true, triggerEventType = "OrderReceived")
+public class OrderProcessingWorkflow {
+
+    @WorkflowStep(id = "validate", timeoutMs = 5000)
+    public Mono<Map<String, Object>> validate(@Input Map<String, Object> input) {
+        return Mono.just(Map.of("orderId", input.get("orderId"), "validated", true));
+    }
+
+    @WorkflowStep(id = "charge", dependsOn = "validate",
+                  maxRetries = 3, retryDelayMs = 1000)
+    public Mono<String> charge(@FromStep("validate") Map<String, Object> validated) {
+        return paymentService.charge((String) validated.get("orderId"));
+    }
+
+    @WorkflowStep(id = "ship", dependsOn = "charge")
+    public Mono<String> ship(@FromStep("charge") String chargeId) {
+        return shippingService.ship(chargeId);
+    }
+}
+```
+
+---
+
+## Architecture
+
+```
++--------------------------------------------------------------------+
+|                        Your Application                            |
+|  @Saga  @Workflow  @Tcc    OR    SagaBuilder  WorkflowBuilder      |
++----------------+----------------------------------+----------------+
+                 |  register                         |  execute
++----------------v----------------------------------v----------------+
+|                         Engine Layer                               |
+|   WorkflowEngine       SagaEngine           TccEngine              |
+|   WorkflowExecutor     SagaExecOrchestrator TccExecOrchestrator    |
+|                         SagaCompensator                            |
++--------+----------------------------+-------------------+----------+
+         |                            |                   |
++--------v----------------------------v-------------------v----------+
+|                          Core Layer                                |
+|   ExecutionContext    StepInvoker    ArgumentResolver               |
+|   TopologyBuilder     RetryPolicy    OrchestrationEvents           |
+|   ExecutionState      DeadLetterService    RecoveryService         |
++--------+------------------------------------------+---------+-----+
+         |                                          |         |
++--------v-----------------+   +--------------------v-+  +----v----+
+|    Persistence Layer     |   |  Observability Layer  |  |  Events |
+|  InMemory (default)      |   |  Logger / Metrics     |  |  Gateway|
+|  Redis / Cache / ES      |   |  Tracing              |  |  Publish|
++--------------------------+   +-----------------------+  +---------+
+```
+
+---
+
+## Pattern Selection Guide
+
+```
+Need to undo on failure?
++-- No  -->  WORKFLOW
++-- Yes
+    +-- Need resource reservation/locking?  -->  TCC
+    +-- Compensating actions sufficient?    -->  SAGA
+```
+
+| Aspect | Workflow | Saga | TCC |
+|--------|----------|------|-----|
+| Consistency | Eventual | Eventual | Strong |
+| Isolation | None | None | Soft-lock |
+| Rollback | None (or per-step compensation) | Automatic compensation | Cancel phase |
+| Use case | Pipelines, ETL, deployments | Orders, transfers, bookings | Reservations, holds, debits |
+
+---
+
+## Event Integration
+
+### Inbound: Event-Driven Triggering
+
+Any orchestration can be triggered by an external event using `triggerEventType`:
+
+```java
+// Annotation
+@Saga(name = "OrderSaga", triggerEventType = "OrderCreated")
+
+// Builder
+SagaBuilder.saga("OrderSaga").triggerEventType("OrderCreated")
+TccBuilder.tcc("PaymentTcc").triggerEventType("PaymentRequested")
+new WorkflowBuilder("Pipeline").triggerEventType("DataIngested")
+```
+
+Route events through the `EventGateway`:
+
+```java
+eventGateway.routeEvent("OrderCreated", Map.of("orderId", "ORD-123"))
+    .subscribe();
+```
+
+### Outbound: Step-Level Events
+
+- **Saga:** `@StepEvent(topic, type, key)` or builder `.stepEvent(topic, type, key)`
+- **TCC:** `@TccEvent(topic, eventType, key)` or builder `.event(topic, eventType, key)`
+- **Workflow:** `publishEvents = true` on `@Workflow` or builder `.publishEvents(true)`
+
+---
+
+## Scheduling
+
+All three patterns support scheduled execution with full parity:
+
+```java
+@Saga(name = "CleanupSaga")
+@ScheduledSaga(cron = "0 0 2 * * *", zone = "America/New_York",
+               enabled = true, input = "{\"daysOld\": 30}")
+public class CleanupSaga { ... }
+
+@Tcc(name = "ReconciliationTcc")
+@ScheduledTcc(fixedRate = 60000, initialDelay = 5000)
+public class ReconciliationTcc { ... }
+
+@Workflow(id = "ReportWorkflow")
+@ScheduledWorkflow(fixedDelay = 3600000, zone = "UTC")
+public class ReportWorkflow { ... }
+```
+
+All scheduling annotations support: `cron`, `fixedRate`, `fixedDelay`, `initialDelay`, `zone`, `enabled`, `input`, and `description`.
+
+---
+
+## Configuration Reference
 
 All properties use the `firefly.orchestration` prefix:
 
@@ -132,25 +332,36 @@ firefly:
       enabled: true
       default-timeout: 30s
     persistence:
-      provider: in-memory    # in-memory | redis | cache | event-sourced
+      provider: in-memory          # in-memory | redis | cache | event-sourced
+      key-prefix: "orchestration:"
+      retention-period: 7d
+      cleanup-interval: 1h
+    scheduling:
+      thread-pool-size: 4
+    recovery:
+      enabled: true
+      stale-threshold: 1h
     metrics:
       enabled: true
     tracing:
       enabled: true
     dlq:
       enabled: true
-    scheduling:
-      thread-pool-size: 4
-    recovery:
+    rest:
       enabled: true
-      stale-threshold: 1h
+    health:
+      enabled: true
+    resilience:
+      enabled: true
 ```
 
-## Requirements
+---
 
-- Java 25+
-- Spring Boot 3.x
-- Project Reactor (included transitively)
+## Documentation
+
+For the complete reference guide covering all three patterns in depth, including tutorials, builder DSL reference, argument injection, persistence providers, observability, and production checklist, see **[docs/reference-guide.md](docs/reference-guide.md)**.
+
+---
 
 ## License
 

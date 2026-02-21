@@ -20,8 +20,8 @@ import java.lang.annotation.*;
 
 /**
  * Configures event publication for a saga step.
- * When present on a {@link SagaStep} method, an event will be published
- * when the saga completes successfully (no compensations executed).
+ * When present on a {@link SagaStep} method, an event is published each time
+ * this individual step completes successfully, regardless of the overall saga outcome.
  */
 @Target(ElementType.METHOD)
 @Retention(RetentionPolicy.RUNTIME)

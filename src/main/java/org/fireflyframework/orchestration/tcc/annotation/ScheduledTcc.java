@@ -27,6 +27,11 @@ import java.lang.annotation.*;
 @Repeatable(ScheduledTccs.class)
 public @interface ScheduledTcc {
     String cron() default "";
+    String zone() default "";
+    boolean enabled() default true;
     long fixedDelay() default -1;
     long fixedRate() default -1;
+    long initialDelay() default 0;
+    String input() default "{}";
+    String description() default "";
 }

@@ -36,6 +36,7 @@ public class WorkflowBuilder {
     private RetryPolicy retryPolicy = RetryPolicy.DEFAULT;
     private boolean publishEvents = false;
     private int layerConcurrency = 0;
+    private String triggerEventType = "";
     private final List<WorkflowStepDefinition> steps = new ArrayList<>();
 
     public WorkflowBuilder(String name) {
@@ -77,6 +78,11 @@ public class WorkflowBuilder {
         return this;
     }
 
+    public WorkflowBuilder triggerEventType(String eventType) {
+        this.triggerEventType = eventType != null ? eventType : "";
+        return this;
+    }
+
     public StepBuilder step(String stepId) {
         return new StepBuilder(this, stepId);
     }
@@ -88,7 +94,7 @@ public class WorkflowBuilder {
 
     public WorkflowDefinition build() {
         return new WorkflowDefinition(name, name, description, version, List.copyOf(steps),
-                triggerMode, "", timeoutMs, retryPolicy, null, List.of(), List.of(), List.of(),
+                triggerMode, triggerEventType, timeoutMs, retryPolicy, null, List.of(), List.of(), List.of(),
                 publishEvents, layerConcurrency);
     }
 

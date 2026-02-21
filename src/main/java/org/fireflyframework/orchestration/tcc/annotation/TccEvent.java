@@ -21,7 +21,7 @@ import java.lang.annotation.*;
 /**
  * Configures event publishing for a TCC participant.
  */
-@Target({ElementType.TYPE, ElementType.METHOD})
+@Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
 public @interface TccEvent {

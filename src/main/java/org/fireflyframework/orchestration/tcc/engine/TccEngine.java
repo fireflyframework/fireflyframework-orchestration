@@ -142,7 +142,7 @@ public class TccEngine {
 
         Mono<Void> callbacks = Mono.empty();
         if (finalStatus == ExecutionStatus.CONFIRMED) {
-            callbacks = invokeTccCompleteCallbacks(tcc, ctx);
+            callbacks = invokeTccCompleteCallbacks(tcc, ctx, tccResult);
         } else if (finalStatus == ExecutionStatus.FAILED) {
             callbacks = invokeTccErrorCallbacks(tcc, ctx, result.getFailureError());
         }
@@ -201,7 +201,7 @@ public class TccEngine {
                 });
     }
 
-    private Mono<Void> invokeTccCompleteCallbacks(TccDefinition tcc, ExecutionContext ctx) {
+    private Mono<Void> invokeTccCompleteCallbacks(TccDefinition tcc, ExecutionContext ctx, TccResult tccResult) {
         List<Method> methods = tcc.onTccCompleteMethods;
         if (methods == null || methods.isEmpty()) return Mono.empty();
 
@@ -214,7 +214,7 @@ public class TccEngine {
             Mono<Void> invoke = Mono.fromRunnable(() -> {
                 try {
                     m.setAccessible(true);
-                    Object[] args = resolveCallbackArgs(m, ctx);
+                    Object[] args = resolveCallbackArgs(m, ctx, tccResult);
                     m.invoke(bean, args);
                 } catch (Exception e) {
                     log.warn("[tcc] @OnTccComplete callback '{}' failed", m.getName(), e);

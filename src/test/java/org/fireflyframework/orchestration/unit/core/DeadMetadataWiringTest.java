@@ -263,6 +263,57 @@ class DeadMetadataWiringTest {
         assertThat(args[1]).isEqualTo("corr-456");
     }
 
+    // ---- TccBuilder defaults alignment ----
+
+    @Test
+    void tccBuilderDefaultsMatchAnnotationDefaults() {
+        var tcc = TccBuilder.tcc("default-tcc")
+                .participant("p1")
+                    .tryHandler((input, ctx) -> Mono.just("tried"))
+                    .confirmHandler((input, ctx) -> Mono.just("confirmed"))
+                    .cancelHandler((input, ctx) -> Mono.just("cancelled"))
+                    .add()
+                .build();
+
+        // TccBuilder.tcc(name) now defaults to match @Tcc annotation:
+        // retryEnabled=true, maxRetries=3, backoffMs=1000, timeoutMs=-1
+        assertThat(tcc.retryEnabled).isTrue();
+        assertThat(tcc.maxRetries).isEqualTo(3);
+        assertThat(tcc.backoffMs).isEqualTo(1000L);
+        assertThat(tcc.timeoutMs).isEqualTo(-1L);
+    }
+
+    @Test
+    void tccBuilderNoRetryDisablesRetry() {
+        var tcc = TccBuilder.tccNoRetry("no-retry-tcc")
+                .participant("p1")
+                    .tryHandler((input, ctx) -> Mono.just("tried"))
+                    .confirmHandler((input, ctx) -> Mono.just("confirmed"))
+                    .cancelHandler((input, ctx) -> Mono.just("cancelled"))
+                    .add()
+                .build();
+
+        assertThat(tcc.retryEnabled).isFalse();
+        assertThat(tcc.maxRetries).isEqualTo(0);
+        assertThat(tcc.backoffMs).isEqualTo(0L);
+    }
+
+    @Test
+    void tccBuilderWithTimeoutPreservesRetryDefaults() {
+        var tcc = TccBuilder.tcc("timeout-tcc", 5000L)
+                .participant("p1")
+                    .tryHandler((input, ctx) -> Mono.just("tried"))
+                    .confirmHandler((input, ctx) -> Mono.just("confirmed"))
+                    .cancelHandler((input, ctx) -> Mono.just("cancelled"))
+                    .add()
+                .build();
+
+        assertThat(tcc.timeoutMs).isEqualTo(5000L);
+        assertThat(tcc.retryEnabled).isTrue();
+        assertThat(tcc.maxRetries).isEqualTo(3);
+        assertThat(tcc.backoffMs).isEqualTo(1000L);
+    }
+
     // ---- Test helper ----
 
     @SuppressWarnings("unused")
