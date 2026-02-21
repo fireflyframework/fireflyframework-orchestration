@@ -22,6 +22,7 @@ import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher
 import org.fireflyframework.orchestration.core.exception.ExecutionNotFoundException;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
+import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.persistence.ExecutionState;
@@ -82,6 +83,53 @@ public class WorkflowEngine {
 
             events.onStart(workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW);
 
+            // Check if ASYNC trigger mode — execute in background and return immediately
+            if (def.triggerMode() == TriggerMode.ASYNC) {
+                return persistence.save(initialState)
+                        .then(eventPublisher.publish(OrchestrationEvent.executionStarted(
+                                workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW)))
+                        .then(Mono.defer(() -> {
+                            // Execute the full workflow pipeline in the background
+                            executor.execute(def, ctx)
+                                    .flatMap(resultCtx -> {
+                                        ExecutionState completedState = buildStateFromContext(workflowId, resultCtx, ExecutionStatus.COMPLETED);
+                                        return persistence.save(completedState)
+                                                .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                                        workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, ExecutionStatus.COMPLETED)))
+                                                .then(invokeWorkflowCompleteCallbacks(def, ctx))
+                                                .thenReturn(completedState);
+                                    })
+                                    .onErrorResume(error -> invokeWorkflowErrorCallbacks(def, ctx, error)
+                                            .then(compensateWorkflow(def, ctx))
+                                            .then(Mono.defer(() -> {
+                                                boolean suppress = def.onWorkflowErrorMethods() != null
+                                                        && def.onWorkflowErrorMethods().stream()
+                                                        .anyMatch(m -> m.getAnnotation(OnWorkflowError.class).suppressError());
+                                                ExecutionStatus status = suppress ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
+                                                ExecutionState finalState = suppress
+                                                        ? buildStateFromContext(workflowId, ctx, ExecutionStatus.COMPLETED)
+                                                        : initialState.withFailure(error.getMessage());
+                                                return persistence.save(finalState)
+                                                        .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                                                workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, status)))
+                                                        .thenReturn(finalState);
+                                            })))
+                                    .doOnSuccess(state -> events.onCompleted(workflowId, ctx.getCorrelationId(),
+                                            ExecutionPattern.WORKFLOW, state.status() == ExecutionStatus.COMPLETED,
+                                            Duration.between(state.startedAt(), Instant.now()).toMillis()))
+                                    .subscribeOn(Schedulers.boundedElastic())
+                                    .subscribe(
+                                            state -> log.info("[workflow] Async workflow '{}' completed with status {}",
+                                                    workflowId, state.status()),
+                                            error -> log.error("[workflow] Async workflow '{}' failed unexpectedly",
+                                                    workflowId, error)
+                                    );
+                            // Return initial RUNNING state immediately
+                            return Mono.just(initialState);
+                        }));
+            }
+
+            // SYNC (default) trigger mode — execute and block until complete
             return persistence.save(initialState)
                     .then(eventPublisher.publish(OrchestrationEvent.executionStarted(
                             workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW)))
