@@ -16,7 +16,9 @@
 
 package org.fireflyframework.orchestration.saga.registry;
 
+import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -31,6 +33,8 @@ public class SagaDefinition {
     public final Object target;
     public final int layerConcurrency;
     public final Map<String, SagaStepDefinition> steps = new LinkedHashMap<>();
+    public List<Method> onSagaCompleteMethods = List.of();
+    public List<Method> onSagaErrorMethods = List.of();
 
     public SagaDefinition(String name, Object bean, Object target, int layerConcurrency) {
         this.name = name;

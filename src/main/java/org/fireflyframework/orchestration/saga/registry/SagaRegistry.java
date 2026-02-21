@@ -117,6 +117,11 @@ public class SagaRegistry {
             }
 
             validateTopology(sagaDef);
+
+            // Scan lifecycle callback methods
+            sagaDef.onSagaCompleteMethods = findAnnotatedMethods(targetClass, OnSagaComplete.class);
+            sagaDef.onSagaErrorMethods = findAnnotatedMethods(targetClass, OnSagaError.class);
+
             sagas.putIfAbsent(sagaName, sagaDef);
         }
 
@@ -218,6 +223,28 @@ public class SagaRegistry {
             if (m.getName().equals(name)) return m;
         }
         return null;
+    }
+
+    private List<Method> findAnnotatedMethods(Class<?> clazz, Class<? extends java.lang.annotation.Annotation> annotationType) {
+        List<Method> methods = new ArrayList<>();
+        for (Method m : clazz.getMethods()) {
+            if (m.isAnnotationPresent(annotationType)) {
+                methods.add(m);
+            }
+        }
+        // Sort by priority (highest first)
+        methods.sort((a, b) -> {
+            int pa = 0, pb = 0;
+            if (annotationType == OnSagaComplete.class) {
+                pa = a.getAnnotation(OnSagaComplete.class).priority();
+                pb = b.getAnnotation(OnSagaComplete.class).priority();
+            } else if (annotationType == OnSagaError.class) {
+                pa = a.getAnnotation(OnSagaError.class).priority();
+                pb = b.getAnnotation(OnSagaError.class).priority();
+            }
+            return Integer.compare(pb, pa);
+        });
+        return List.copyOf(methods);
     }
 
     private Method resolveInvocationMethod(Class<?> beanClass, Method targetMethod) {

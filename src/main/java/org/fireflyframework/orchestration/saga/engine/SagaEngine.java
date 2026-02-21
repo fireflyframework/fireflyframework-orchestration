@@ -27,13 +27,18 @@ import org.fireflyframework.orchestration.core.model.StepStatus;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.persistence.ExecutionState;
+import org.fireflyframework.orchestration.saga.annotation.OnSagaComplete;
+import org.fireflyframework.orchestration.saga.annotation.OnSagaError;
 import org.fireflyframework.orchestration.saga.compensation.SagaCompensator;
 import org.fireflyframework.orchestration.saga.registry.SagaDefinition;
 import org.fireflyframework.orchestration.saga.registry.SagaRegistry;
 import org.fireflyframework.orchestration.saga.registry.SagaStepDefinition;
 import lombok.extern.slf4j.Slf4j;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
+import java.lang.reflect.Method;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
@@ -119,6 +124,7 @@ public class SagaEngine {
             return persistFinalState(ctx, ExecutionStatus.COMPLETED)
                     .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                             sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, ExecutionStatus.COMPLETED)))
+                    .then(invokeSagaCompleteCallbacks(workSaga, ctx))
                     .then(Mono.just(SagaResult.from(sagaName, ctx, Map.of(), result.getStepErrors(), workSaga.steps.keySet())));
         }
 
@@ -129,6 +135,7 @@ public class SagaEngine {
                 .then(saveToDlq(sagaName, ctx, result, materializedInputs))
                 .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                         sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, ExecutionStatus.FAILED)))
+                .then(invokeSagaErrorCallbacks(workSaga, ctx, result.getStepErrors()))
                 .then(Mono.defer(() -> {
                     Map<String, Boolean> compensated = extractCompensationFlags(result.getCompletionOrder(), ctx);
                     return Mono.just(SagaResult.from(sagaName, ctx, compensated, result.getStepErrors(), workSaga.steps.keySet()));
@@ -260,6 +267,100 @@ public class SagaEngine {
             else result.add(dep);
         }
         return result;
+    }
+
+    private Mono<Void> invokeSagaCompleteCallbacks(SagaDefinition saga, ExecutionContext ctx) {
+        List<Method> methods = saga.onSagaCompleteMethods;
+        if (methods == null || methods.isEmpty()) return Mono.empty();
+
+        Object bean = saga.bean;
+        if (bean == null) return Mono.empty();
+
+        List<Mono<Void>> syncInvocations = new ArrayList<>();
+        for (Method m : methods) {
+            OnSagaComplete ann = m.getAnnotation(OnSagaComplete.class);
+            Mono<Void> invoke = Mono.fromRunnable(() -> {
+                try {
+                    m.setAccessible(true);
+                    Object[] args = resolveCallbackArgs(m, ctx);
+                    m.invoke(bean, args);
+                } catch (Exception e) {
+                    log.warn("[saga] @OnSagaComplete callback '{}' failed", m.getName(), e);
+                }
+            });
+            if (ann.async()) {
+                invoke.subscribeOn(Schedulers.boundedElastic()).subscribe();
+            } else {
+                syncInvocations.add(invoke);
+            }
+        }
+        return Flux.concat(syncInvocations).then();
+    }
+
+    private Mono<Void> invokeSagaErrorCallbacks(SagaDefinition saga, ExecutionContext ctx,
+                                                  Map<String, Throwable> stepErrors) {
+        List<Method> methods = saga.onSagaErrorMethods;
+        if (methods == null || methods.isEmpty()) return Mono.empty();
+
+        Object bean = saga.bean;
+        if (bean == null) return Mono.empty();
+
+        // Get the first error for errorTypes matching
+        Throwable error = stepErrors.values().stream().findFirst().orElse(null);
+        if (error == null) return Mono.empty();
+
+        List<Mono<Void>> syncInvocations = new ArrayList<>();
+        for (Method m : methods) {
+            OnSagaError ann = m.getAnnotation(OnSagaError.class);
+
+            // Filter by errorTypes
+            if (ann.errorTypes().length > 0) {
+                boolean matches = Arrays.stream(ann.errorTypes()).anyMatch(t -> t.isInstance(error));
+                if (!matches) continue;
+            }
+
+            Mono<Void> invoke = Mono.fromRunnable(() -> {
+                try {
+                    m.setAccessible(true);
+                    Object[] args = resolveCallbackArgs(m, error, ctx);
+                    m.invoke(bean, args);
+                } catch (Exception e) {
+                    log.warn("[saga] @OnSagaError callback '{}' failed", m.getName(), e);
+                }
+            });
+            if (ann.async()) {
+                invoke.subscribeOn(Schedulers.boundedElastic()).subscribe();
+            } else {
+                syncInvocations.add(invoke);
+            }
+        }
+        return Flux.concat(syncInvocations).then();
+    }
+
+    private Object[] resolveCallbackArgs(Method method, Object... candidates) {
+        Class<?>[] paramTypes = method.getParameterTypes();
+        Object[] args = new Object[paramTypes.length];
+
+        for (int i = 0; i < paramTypes.length; i++) {
+            Class<?> pt = paramTypes[i];
+            if (ExecutionContext.class.isAssignableFrom(pt)) {
+                for (Object c : candidates) {
+                    if (c instanceof ExecutionContext) { args[i] = c; break; }
+                }
+            } else if (Throwable.class.isAssignableFrom(pt)) {
+                for (Object c : candidates) {
+                    if (c instanceof Throwable) { args[i] = c; break; }
+                }
+            } else {
+                for (Object c : candidates) {
+                    if (c != null && pt.isAssignableFrom(c.getClass())) {
+                        args[i] = c;
+                        break;
+                    }
+                }
+            }
+        }
+        return args;
     }
 
     private SagaStepDefinition cloneStepDef(SagaStepDefinition sd, String newId, List<String> newDeps) {
