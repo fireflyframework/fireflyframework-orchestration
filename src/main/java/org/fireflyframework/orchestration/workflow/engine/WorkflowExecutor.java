@@ -238,7 +238,13 @@ public class WorkflowExecutor {
                                 ctx.setStepStatus(stepId, StepStatus.FAILED);
                                 events.onStepFailed(def.workflowId(), ctx.getCorrelationId(), stepId,
                                         error, ctx.getAttempts(stepId));
-                                return Mono.error(error);
+                                Mono<Void> publishFailure = Mono.empty();
+                                if (def.publishEvents()) {
+                                    publishFailure = eventPublisher.publish(
+                                            OrchestrationEvent.stepFailed(def.workflowId(), ctx.getCorrelationId(),
+                                                    ExecutionPattern.WORKFLOW, stepId, error));
+                                }
+                                return publishFailure.then(Mono.error(error));
                             })
                             .then();
                 })
