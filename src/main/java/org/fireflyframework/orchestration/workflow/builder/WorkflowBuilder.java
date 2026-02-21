@@ -35,6 +35,7 @@ public class WorkflowBuilder {
     private TriggerMode triggerMode = TriggerMode.SYNC;
     private long timeoutMs = 30000;
     private RetryPolicy retryPolicy = RetryPolicy.DEFAULT;
+    private boolean publishEvents = false;
     private final List<WorkflowStepDefinition> steps = new ArrayList<>();
 
     public WorkflowBuilder(String name) {
@@ -66,6 +67,11 @@ public class WorkflowBuilder {
         return this;
     }
 
+    public WorkflowBuilder publishEvents(boolean publishEvents) {
+        this.publishEvents = publishEvents;
+        return this;
+    }
+
     public StepBuilder step(String stepId) {
         return new StepBuilder(this, stepId);
     }
@@ -77,7 +83,8 @@ public class WorkflowBuilder {
 
     public WorkflowDefinition build() {
         return new WorkflowDefinition(name, name, description, version, List.copyOf(steps),
-                triggerMode, "", timeoutMs, retryPolicy, null, List.of(), List.of(), List.of());
+                triggerMode, "", timeoutMs, retryPolicy, null, List.of(), List.of(), List.of(),
+                publishEvents);
     }
 
     public static class StepBuilder {
@@ -96,6 +103,8 @@ public class WorkflowBuilder {
         private long signalTimeoutMs = 0;
         private long waitForTimerDelayMs = 0;
         private String waitForTimerId;
+        private String outputEventType = "";
+        private String condition = "";
 
         StepBuilder(WorkflowBuilder parent, String stepId) {
             this.parent = parent;
@@ -139,6 +148,16 @@ public class WorkflowBuilder {
             return this;
         }
 
+        public StepBuilder outputEventType(String outputEventType) {
+            this.outputEventType = outputEventType;
+            return this;
+        }
+
+        public StepBuilder condition(String condition) {
+            this.condition = condition;
+            return this;
+        }
+
         public StepBuilder waitForSignal(String signalName) {
             this.waitForSignal = signalName;
             return this;
@@ -163,7 +182,7 @@ public class WorkflowBuilder {
 
         public WorkflowBuilder add() {
             var stepDef = new WorkflowStepDefinition(stepId, name, description, dependsOn, order,
-                    StepTriggerMode.BOTH, "", "", timeoutMs, retryPolicy, "",
+                    StepTriggerMode.BOTH, "", outputEventType, timeoutMs, retryPolicy, condition,
                     false, false, "", bean, method,
                     waitForSignal, signalTimeoutMs, waitForTimerDelayMs, waitForTimerId);
             return parent.addStep(stepDef);

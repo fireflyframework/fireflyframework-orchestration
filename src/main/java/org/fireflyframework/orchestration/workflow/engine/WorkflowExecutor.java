@@ -240,6 +240,9 @@ public class WorkflowExecutor {
 
     private Mono<Void> publishWorkflowStepEvent(WorkflowDefinition def, WorkflowStepDefinition stepDef,
                                                   String stepId, Object result, ExecutionContext ctx) {
+        if (!def.publishEvents()) {
+            return Mono.empty();
+        }
         String outputEventType = stepDef.outputEventType();
         if (outputEventType == null || outputEventType.isBlank()) {
             return Mono.empty();

@@ -376,7 +376,8 @@ class EventPublishingTest {
                         false, false, "",
                         testSteps, TestWorkflowSteps.class.getMethod("step1", Map.class),
                         null, 0, 0, null)),
-                TriggerMode.SYNC, "", 30000, RetryPolicy.DEFAULT, null, null, null, null);
+                TriggerMode.SYNC, "", 30000, RetryPolicy.DEFAULT, null, null, null, null,
+                true);
         registry.register(def);
 
         StepVerifier.create(engine.startWorkflow("wf-event", Map.of("k", "v")))

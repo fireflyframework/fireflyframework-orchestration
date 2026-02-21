@@ -36,8 +36,21 @@ public record WorkflowDefinition(
         Object workflowBean,
         List<Method> onStepCompleteMethods,
         List<Method> onWorkflowCompleteMethods,
-        List<Method> onWorkflowErrorMethods
+        List<Method> onWorkflowErrorMethods,
+        boolean publishEvents
 ) {
+    /**
+     * Backward-compatible constructor that defaults {@code publishEvents} to {@code false}.
+     */
+    public WorkflowDefinition(String workflowId, String name, String description, String version,
+                               List<WorkflowStepDefinition> steps, TriggerMode triggerMode,
+                               String triggerEventType, long timeoutMs, RetryPolicy retryPolicy,
+                               Object workflowBean, List<Method> onStepCompleteMethods,
+                               List<Method> onWorkflowCompleteMethods, List<Method> onWorkflowErrorMethods) {
+        this(workflowId, name, description, version, steps, triggerMode, triggerEventType, timeoutMs,
+                retryPolicy, workflowBean, onStepCompleteMethods, onWorkflowCompleteMethods,
+                onWorkflowErrorMethods, false);
+    }
     public Optional<WorkflowStepDefinition> findStep(String stepId) {
         return steps.stream().filter(s -> s.stepId().equals(stepId)).findFirst();
     }
