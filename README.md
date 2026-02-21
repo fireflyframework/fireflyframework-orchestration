@@ -1,18 +1,20 @@
 # Firefly Framework Orchestration
 
-**A unified, reactive orchestration engine for distributed transactions in Spring Boot applications.**
+**A reactive orchestration engine for distributed transactions in Spring Boot applications.**
 
-Three patterns -- Workflow, Saga, and TCC (Try-Confirm-Cancel) -- share a common core of persistence, observability, event integration, scheduling, and argument injection. Define orchestrations with annotations or a fluent builder DSL, and let the engine handle execution ordering, failure recovery, automatic compensation, and dead-letter routing.
+Firefly Orchestration provides three coordination patterns -- Workflow, Saga, and TCC (Try-Confirm-Cancel) -- in a single module built on Project Reactor. All three share a common core: execution context, argument injection, retry policies, persistence, observability, event integration, scheduling, and dead-letter routing.
 
-| | |
-|---|---|
-| **Group** | `org.fireflyframework` |
-| **Artifact** | `fireflyframework-orchestration` |
-| **Version** | `26.02.06` |
-| **Java** | 25+ |
-| **Spring Boot** | 3.x |
-| **Reactor** | 3.x |
-| **License** | Apache 2.0 |
+Define orchestrations using annotations (`@Saga`, `@Workflow`, `@Tcc`) or a fluent builder DSL. The engine handles DAG-based execution ordering, automatic compensation on failure, per-step checkpointing, and recovery of stale executions.
+
+```xml
+<dependency>
+    <groupId>org.fireflyframework</groupId>
+    <artifactId>fireflyframework-orchestration</artifactId>
+    <version>26.02.06</version>
+</dependency>
+```
+
+> Requires **Java 25+**, **Spring Boot 3.x**, and **Project Reactor 3.x**. Licensed under **Apache 2.0**.
 
 ---
 
@@ -21,7 +23,6 @@ Three patterns -- Workflow, Saga, and TCC (Try-Confirm-Cancel) -- share a common
 - [Why Firefly Orchestration](#why-firefly-orchestration)
 - [Features](#features)
 - [Getting Started](#getting-started)
-  - [Add the Dependency](#add-the-dependency)
   - [Saga Example (Annotations)](#saga-example-annotations)
   - [Saga Example (Builder DSL)](#saga-example-builder-dsl)
   - [TCC Example](#tcc-example)
@@ -84,16 +85,6 @@ Three patterns -- Workflow, Saga, and TCC (Try-Confirm-Cancel) -- share a common
 ---
 
 ## Getting Started
-
-### Add the Dependency
-
-```xml
-<dependency>
-    <groupId>org.fireflyframework</groupId>
-    <artifactId>fireflyframework-orchestration</artifactId>
-    <version>26.02.06</version>
-</dependency>
-```
 
 ### Saga Example (Annotations)
 
