@@ -102,9 +102,7 @@ public class WorkflowEngine {
                                     .onErrorResume(error -> invokeWorkflowErrorCallbacks(def, ctx, error)
                                             .then(compensateWorkflow(def, ctx))
                                             .then(Mono.defer(() -> {
-                                                boolean suppress = def.onWorkflowErrorMethods() != null
-                                                        && def.onWorkflowErrorMethods().stream()
-                                                        .anyMatch(m -> m.getAnnotation(OnWorkflowError.class).suppressError());
+                                                boolean suppress = shouldSuppressError(def, ctx, error);
                                                 ExecutionStatus status = suppress ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
                                                 ExecutionState finalState = suppress
                                                         ? buildStateFromContext(workflowId, ctx, ExecutionStatus.COMPLETED)
@@ -145,9 +143,7 @@ public class WorkflowEngine {
                     .onErrorResume(error -> invokeWorkflowErrorCallbacks(def, ctx, error)
                             .then(compensateWorkflow(def, ctx))
                             .then(Mono.defer(() -> {
-                                boolean suppress = def.onWorkflowErrorMethods() != null
-                                        && def.onWorkflowErrorMethods().stream()
-                                        .anyMatch(m -> m.getAnnotation(OnWorkflowError.class).suppressError());
+                                boolean suppress = shouldSuppressError(def, ctx, error);
                                 ExecutionStatus status = suppress ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
                                 ExecutionState finalState = suppress
                                         ? buildStateFromContext(workflowId, ctx, ExecutionStatus.COMPLETED)
@@ -342,6 +338,38 @@ public class WorkflowEngine {
             }
         }
         return args;
+    }
+
+    /**
+     * Determine whether the error should be suppressed based on matching {@code @OnWorkflowError} handlers.
+     * Only handlers whose {@code errorTypes} and {@code stepIds} filters match the current error/context
+     * contribute to the suppress decision.
+     */
+    private boolean shouldSuppressError(WorkflowDefinition def, ExecutionContext ctx, Throwable error) {
+        List<Method> methods = def.onWorkflowErrorMethods();
+        if (methods == null || methods.isEmpty()) return false;
+
+        for (Method m : methods) {
+            OnWorkflowError ann = m.getAnnotation(OnWorkflowError.class);
+
+            // Apply same errorTypes filter as invokeWorkflowErrorCallbacks
+            if (ann.errorTypes().length > 0) {
+                boolean matches = Arrays.stream(ann.errorTypes()).anyMatch(t -> t.isInstance(error));
+                if (!matches) continue;
+            }
+
+            // Apply same stepIds filter as invokeWorkflowErrorCallbacks
+            if (ann.stepIds().length > 0) {
+                boolean stepMatch = ctx.getStepStatuses().entrySet().stream()
+                        .anyMatch(e -> Arrays.asList(ann.stepIds()).contains(e.getKey())
+                                && e.getValue() == org.fireflyframework.orchestration.core.model.StepStatus.FAILED);
+                if (!stepMatch) continue;
+            }
+
+            // This handler matched — check its suppressError flag
+            if (ann.suppressError()) return true;
+        }
+        return false;
     }
 
     private ExecutionState buildStateFromContext(String workflowId, ExecutionContext ctx, ExecutionStatus status) {
