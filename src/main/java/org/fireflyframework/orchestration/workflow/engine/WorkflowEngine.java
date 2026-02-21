@@ -17,11 +17,14 @@
 package org.fireflyframework.orchestration.workflow.engine;
 
 import org.fireflyframework.orchestration.core.context.ExecutionContext;
+import org.fireflyframework.orchestration.core.dlq.DeadLetterEntry;
+import org.fireflyframework.orchestration.core.dlq.DeadLetterService;
 import org.fireflyframework.orchestration.core.event.OrchestrationEvent;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.exception.ExecutionNotFoundException;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
+import org.fireflyframework.orchestration.core.model.StepStatus;
 import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
@@ -49,15 +52,23 @@ public class WorkflowEngine {
     private final ExecutionPersistenceProvider persistence;
     private final OrchestrationEvents events;
     private final OrchestrationEventPublisher eventPublisher;
+    private final DeadLetterService dlqService;
 
     public WorkflowEngine(WorkflowRegistry registry, WorkflowExecutor executor,
                            ExecutionPersistenceProvider persistence, OrchestrationEvents events,
                            OrchestrationEventPublisher eventPublisher) {
+        this(registry, executor, persistence, events, eventPublisher, null);
+    }
+
+    public WorkflowEngine(WorkflowRegistry registry, WorkflowExecutor executor,
+                           ExecutionPersistenceProvider persistence, OrchestrationEvents events,
+                           OrchestrationEventPublisher eventPublisher, DeadLetterService dlqService) {
         this.registry = registry;
         this.executor = executor;
         this.persistence = persistence;
         this.events = events;
         this.eventPublisher = java.util.Objects.requireNonNull(eventPublisher, "eventPublisher");
+        this.dlqService = dlqService;
     }
 
     public Mono<ExecutionState> startWorkflow(String workflowId, Map<String, Object> input) {
@@ -101,6 +112,7 @@ public class WorkflowEngine {
                                     })
                                     .onErrorResume(error -> invokeWorkflowErrorCallbacks(def, ctx, error)
                                             .then(compensateWorkflow(def, ctx))
+                                            .then(saveToDlq(workflowId, ctx, error, input))
                                             .then(Mono.defer(() -> {
                                                 boolean suppress = shouldSuppressError(def, ctx, error);
                                                 ExecutionStatus status = suppress ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
@@ -142,6 +154,7 @@ public class WorkflowEngine {
                     })
                     .onErrorResume(error -> invokeWorkflowErrorCallbacks(def, ctx, error)
                             .then(compensateWorkflow(def, ctx))
+                            .then(saveToDlq(workflowId, ctx, error, input))
                             .then(Mono.defer(() -> {
                                 boolean suppress = shouldSuppressError(def, ctx, error);
                                 ExecutionStatus status = suppress ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
@@ -243,6 +256,26 @@ public class WorkflowEngine {
 
     public void registerWorkflow(WorkflowDefinition definition) {
         registry.register(definition);
+    }
+
+    private Mono<Void> saveToDlq(String workflowId, ExecutionContext ctx, Throwable error, Map<String, Object> inputs) {
+        if (dlqService == null) return Mono.empty();
+
+        // Find the first FAILED step
+        String failedStep = ctx.getStepStatuses().entrySet().stream()
+                .filter(e -> e.getValue() == StepStatus.FAILED)
+                .map(Map.Entry::getKey)
+                .findFirst()
+                .orElse("unknown");
+
+        DeadLetterEntry entry = DeadLetterEntry.create(
+                workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, failedStep,
+                ExecutionStatus.FAILED, error, inputs != null ? inputs : Map.of());
+        return dlqService.deadLetter(entry)
+                .onErrorResume(err -> {
+                    log.warn("[workflow] Failed to save to DLQ: {}", ctx.getCorrelationId(), err);
+                    return Mono.empty();
+                });
     }
 
     /**

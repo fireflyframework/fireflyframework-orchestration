@@ -16,6 +16,7 @@
 
 package org.fireflyframework.orchestration.config;
 
+import org.fireflyframework.orchestration.core.dlq.DeadLetterService;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
@@ -37,6 +38,7 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 
@@ -73,9 +75,11 @@ public class WorkflowAutoConfiguration {
                                           WorkflowExecutor executor,
                                           ExecutionPersistenceProvider persistence,
                                           OrchestrationEvents events,
-                                          OrchestrationEventPublisher eventPublisher) {
+                                          OrchestrationEventPublisher eventPublisher,
+                                          ObjectProvider<DeadLetterService> dlqService) {
         log.info("[orchestration] Workflow engine initialized");
-        return new WorkflowEngine(registry, executor, persistence, events, eventPublisher);
+        return new WorkflowEngine(registry, executor, persistence, events, eventPublisher,
+                dlqService.getIfAvailable());
     }
 
     @Bean
