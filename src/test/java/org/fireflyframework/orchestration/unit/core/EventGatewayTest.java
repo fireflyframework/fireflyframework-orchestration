@@ -109,6 +109,27 @@ class EventGatewayTest {
     }
 
     @Test
+    void routeEvent_triggersMatchingTcc() {
+        var triggered = new AtomicBoolean(false);
+        var receivedPayload = new AtomicReference<Map<String, Object>>();
+
+        gateway.register("inventory.reserved", "inventory-tcc", ExecutionPattern.TCC,
+                payload -> {
+                    triggered.set(true);
+                    receivedPayload.set(payload);
+                    return Mono.just("tcc-started");
+                });
+
+        Map<String, Object> payload = Map.of("itemId", "SKU-123", "quantity", 5);
+
+        StepVerifier.create(gateway.routeEvent("inventory.reserved", payload))
+                .verifyComplete();
+
+        assertThat(triggered.get()).isTrue();
+        assertThat(receivedPayload.get()).containsEntry("itemId", "SKU-123");
+    }
+
+    @Test
     void registeredEventTypes_returnsAllTypes() {
         gateway.register("event.a", "target-a", ExecutionPattern.WORKFLOW, p -> Mono.empty());
         gateway.register("event.b", "target-b", ExecutionPattern.SAGA, p -> Mono.empty());

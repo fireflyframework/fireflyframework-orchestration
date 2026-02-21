@@ -19,8 +19,12 @@ package org.fireflyframework.orchestration.config;
 import org.fireflyframework.orchestration.core.event.EventGateway;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.saga.engine.SagaEngine;
+import org.fireflyframework.orchestration.saga.engine.StepInputs;
+import org.fireflyframework.orchestration.saga.registry.SagaDefinition;
 import org.fireflyframework.orchestration.saga.registry.SagaRegistry;
 import org.fireflyframework.orchestration.tcc.engine.TccEngine;
+import org.fireflyframework.orchestration.tcc.engine.TccInputs;
+import org.fireflyframework.orchestration.tcc.registry.TccDefinition;
 import org.fireflyframework.orchestration.tcc.registry.TccRegistry;
 import org.fireflyframework.orchestration.workflow.engine.WorkflowEngine;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowDefinition;
@@ -35,10 +39,9 @@ import org.springframework.context.annotation.Bean;
 /**
  * Auto-configuration for the {@link EventGateway}.
  *
- * <p>Creates an {@code EventGateway} bean and scans all registered workflows
- * (and potentially sagas/TCCs in the future) for {@code triggerEventType}
- * declarations, building a routing table that maps event types to execution
- * targets.
+ * <p>Creates an {@code EventGateway} bean and scans all registered workflows,
+ * sagas, and TCCs for {@code triggerEventType} declarations, building a
+ * routing table that maps event types to execution targets.
  */
 @Slf4j
 @AutoConfiguration(after = {WorkflowAutoConfiguration.class, SagaAutoConfiguration.class, TccAutoConfiguration.class})
@@ -76,8 +79,33 @@ public class EventGatewayAutoConfiguration {
                 }
             }
 
-            // Note: @Saga and @Tcc annotations do not currently support triggerEventType.
-            // When they do, scanning logic can be added here following the same pattern.
+            // Scan sagas for triggerEventType
+            SagaRegistry sagaRegistry = sagaRegistryProvider.getIfAvailable();
+            SagaEngine sagaEngine = sagaEngineProvider.getIfAvailable();
+            if (sagaRegistry != null && sagaEngine != null) {
+                for (SagaDefinition def : sagaRegistry.getAll()) {
+                    if (def.triggerEventType != null && !def.triggerEventType.isBlank()) {
+                        eventGateway.register(
+                                def.triggerEventType, def.name,
+                                ExecutionPattern.SAGA,
+                                payload -> sagaEngine.execute(def.name, StepInputs.of(payload)));
+                    }
+                }
+            }
+
+            // Scan TCCs for triggerEventType
+            TccRegistry tccRegistry = tccRegistryProvider.getIfAvailable();
+            TccEngine tccEngine = tccEngineProvider.getIfAvailable();
+            if (tccRegistry != null && tccEngine != null) {
+                for (TccDefinition def : tccRegistry.getAll()) {
+                    if (def.triggerEventType != null && !def.triggerEventType.isBlank()) {
+                        eventGateway.register(
+                                def.triggerEventType, def.name,
+                                ExecutionPattern.TCC,
+                                payload -> tccEngine.execute(def.name, TccInputs.of(payload)));
+                    }
+                }
+            }
 
             if (eventGateway.registrationCount() > 0) {
                 log.info("[event-gateway] Scan complete: {} trigger(s) registered for event types {}",

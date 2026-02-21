@@ -30,4 +30,10 @@ public @interface Tcc {
     boolean retryEnabled() default true;
     int maxRetries() default 3;
     long backoffMs() default 1000;
+
+    /**
+     * Event type that triggers this TCC transaction via the {@code EventGateway}.
+     * Empty string means the TCC is not event-triggered.
+     */
+    String triggerEventType() default "";
 }

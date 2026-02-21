@@ -34,6 +34,7 @@ public class TccDefinition {
     public final int maxRetries;
     public final long backoffMs;
     public final Map<String, TccParticipantDefinition> participants = new LinkedHashMap<>();
+    public String triggerEventType = "";
     public List<Method> onTccCompleteMethods = List.of();
     public List<Method> onTccErrorMethods = List.of();
 

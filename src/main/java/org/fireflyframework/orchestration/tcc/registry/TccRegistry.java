@@ -76,6 +76,7 @@ public class TccRegistry {
             TccDefinition tccDef = new TccDefinition(
                     tccAnn.name(), bean, bean,
                     tccAnn.timeoutMs(), tccAnn.retryEnabled(), tccAnn.maxRetries(), tccAnn.backoffMs());
+            tccDef.triggerEventType = tccAnn.triggerEventType();
 
             scanParticipants(tccDef, targetClass);
             validateDefinition(tccDef);

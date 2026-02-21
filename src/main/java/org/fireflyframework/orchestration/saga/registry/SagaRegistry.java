@@ -79,6 +79,7 @@ public class SagaRegistry {
             if (sagaAnn == null) continue;
             String sagaName = sagaAnn.name();
             SagaDefinition sagaDef = new SagaDefinition(sagaName, bean, bean, sagaAnn.layerConcurrency());
+            sagaDef.triggerEventType = sagaAnn.triggerEventType();
 
             for (Method m : targetClass.getMethods()) {
                 SagaStep stepAnn = m.getAnnotation(SagaStep.class);

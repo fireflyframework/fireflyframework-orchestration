@@ -37,4 +37,10 @@ public @interface Saga {
      * 0 means unbounded (all steps in a layer execute in parallel).
      */
     int layerConcurrency() default 0;
+
+    /**
+     * Event type that triggers this saga via the {@code EventGateway}.
+     * Empty string means the saga is not event-triggered.
+     */
+    String triggerEventType() default "";
 }

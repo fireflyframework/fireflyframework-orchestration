@@ -33,6 +33,7 @@ public class SagaDefinition {
     public final Object target;
     public final int layerConcurrency;
     public final Map<String, SagaStepDefinition> steps = new LinkedHashMap<>();
+    public String triggerEventType = "";
     public List<Method> onSagaCompleteMethods = List.of();
     public List<Method> onSagaErrorMethods = List.of();
 
