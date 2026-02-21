@@ -85,9 +85,12 @@ public class SchedulingPostProcessor implements SmartInitializingSingleton {
             if (schedAnns.length == 0) continue;
 
             for (ScheduledSaga schedAnn : schedAnns) {
-                registerSchedule(sagaName, "saga", schedAnn.cron(), "", schedAnn.fixedDelay(),
-                        schedAnn.fixedRate(),
-                        () -> sagaEngine.execute(sagaName, StepInputs.empty()).subscribe());
+                if (!schedAnn.enabled()) continue;
+                Map<String, Object> input = parseInput(schedAnn.input());
+                registerSchedule(sagaName, "saga", schedAnn.cron(), schedAnn.zone(),
+                        schedAnn.fixedDelay(), schedAnn.fixedRate(), schedAnn.initialDelay(),
+                        () -> sagaEngine.execute(sagaName,
+                                input.isEmpty() ? StepInputs.empty() : StepInputs.of(input)).subscribe());
             }
         }
     }
@@ -104,9 +107,12 @@ public class SchedulingPostProcessor implements SmartInitializingSingleton {
             if (schedAnns.length == 0) continue;
 
             for (ScheduledTcc schedAnn : schedAnns) {
-                registerSchedule(tccName, "tcc", schedAnn.cron(), "", schedAnn.fixedDelay(),
-                        schedAnn.fixedRate(),
-                        () -> tccEngine.execute(tccName, TccInputs.empty()).subscribe());
+                if (!schedAnn.enabled()) continue;
+                Map<String, Object> input = parseInput(schedAnn.input());
+                registerSchedule(tccName, "tcc", schedAnn.cron(), schedAnn.zone(),
+                        schedAnn.fixedDelay(), schedAnn.fixedRate(), schedAnn.initialDelay(),
+                        () -> tccEngine.execute(tccName,
+                                input.isEmpty() ? TccInputs.empty() : TccInputs.of(input)).subscribe());
             }
         }
     }
@@ -128,7 +134,7 @@ public class SchedulingPostProcessor implements SmartInitializingSingleton {
                 if (!schedAnn.enabled()) continue;
                 Map<String, Object> input = parseInput(schedAnn.input());
                 registerSchedule(workflowId, "workflow", schedAnn.cron(), schedAnn.zone(),
-                        schedAnn.fixedDelay(), schedAnn.fixedRate(),
+                        schedAnn.fixedDelay(), schedAnn.fixedRate(), schedAnn.initialDelay(),
                         () -> workflowEngine.startWorkflow(workflowId, input).subscribe());
             }
         }
@@ -149,18 +155,19 @@ public class SchedulingPostProcessor implements SmartInitializingSingleton {
     }
 
     private void registerSchedule(String name, String type, String cron, String zone,
-                                  long fixedDelay, long fixedRate, Runnable task) {
+                                  long fixedDelay, long fixedRate, long initialDelay, Runnable task) {
         String taskId = type + ":" + name;
+        long effectiveInitialDelay = Math.max(initialDelay, 0);
         if (cron != null && !cron.isBlank()) {
             scheduler.scheduleWithCron(taskId + ":cron", task, cron, zone);
             log.info("[scheduling] Registered cron schedule for {} '{}'", type, name);
         }
         if (fixedRate > 0) {
-            scheduler.scheduleAtFixedRate(taskId + ":rate", task, fixedRate, fixedRate);
+            scheduler.scheduleAtFixedRate(taskId + ":rate", task, effectiveInitialDelay, fixedRate);
             log.info("[scheduling] Registered fixed-rate schedule for {} '{}' every {}ms", type, name, fixedRate);
         }
         if (fixedDelay > 0) {
-            scheduler.scheduleWithFixedDelay(taskId + ":delay", task, fixedDelay, fixedDelay);
+            scheduler.scheduleWithFixedDelay(taskId + ":delay", task, effectiveInitialDelay, fixedDelay);
             log.info("[scheduling] Registered fixed-delay schedule for {} '{}' every {}ms", type, name, fixedDelay);
         }
     }

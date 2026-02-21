@@ -20,6 +20,7 @@ import org.fireflyframework.orchestration.core.context.ExecutionContext;
 import org.fireflyframework.orchestration.core.step.StepHandler;
 import org.fireflyframework.orchestration.saga.registry.SagaDefinition;
 import org.fireflyframework.orchestration.saga.registry.SagaStepDefinition;
+import org.fireflyframework.orchestration.saga.registry.StepEventConfig;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
@@ -67,6 +68,11 @@ public class SagaBuilder {
         return new SagaBuilder(name, layerConcurrency);
     }
 
+    public SagaBuilder triggerEventType(String eventType) {
+        this.saga.triggerEventType = eventType != null ? eventType : "";
+        return this;
+    }
+
     public Step step(String id) {
         return new Step(id);
     }
@@ -92,6 +98,7 @@ public class SagaBuilder {
         private Duration compensationTimeout;
         private boolean compensationCritical = false;
         private boolean cpuBound = false;
+        private StepEventConfig stepEvent;
 
         private Step(String id) {
             this.id = id;
@@ -117,6 +124,10 @@ public class SagaBuilder {
         public Step compensationTimeout(Duration d) { this.compensationTimeout = d; return this; }
         public Step compensationCritical(boolean critical) { this.compensationCritical = critical; return this; }
         public Step cpuBound(boolean cpuBound) { this.cpuBound = cpuBound; return this; }
+        public Step stepEvent(String topic, String type, String key) {
+            this.stepEvent = new StepEventConfig(topic, type, key);
+            return this;
+        }
 
         public Step handler(StepHandler<?, ?> handler) { this.handler = handler; return this; }
 
@@ -181,6 +192,7 @@ public class SagaBuilder {
             if (this.compensationBackoff != null) sd.compensationBackoff = this.compensationBackoff;
             if (this.compensationTimeout != null) sd.compensationTimeout = this.compensationTimeout;
             sd.compensationCritical = this.compensationCritical;
+            sd.stepEvent = this.stepEvent;
 
             if (saga.steps.putIfAbsent(id, sd) != null) {
                 throw new IllegalStateException("Duplicate step id '" + id + "' in saga '" + saga.name + "'");

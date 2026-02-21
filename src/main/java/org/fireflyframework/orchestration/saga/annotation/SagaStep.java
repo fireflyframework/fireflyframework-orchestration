@@ -69,8 +69,9 @@ public @interface SagaStep {
     double jitterFactor() default 0.5d;
 
     /**
-     * SpEL expression evaluated against the input to produce an idempotency key.
-     * If the key already exists in the context, the step is skipped.
+     * Literal string key used for idempotency deduplication.
+     * If a step with this key has already been executed in the current context,
+     * execution is skipped.
      */
     String idempotencyKey() default "";
 

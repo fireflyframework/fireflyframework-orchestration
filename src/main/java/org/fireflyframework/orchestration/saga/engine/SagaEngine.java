@@ -121,11 +121,12 @@ public class SagaEngine {
         events.onCompleted(sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, success, durationMs);
 
         if (success) {
+            SagaResult sagaResult = SagaResult.from(sagaName, ctx, Map.of(), result.getStepErrors(), workSaga.steps.keySet());
             return persistFinalState(ctx, ExecutionStatus.COMPLETED)
                     .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                             sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, ExecutionStatus.COMPLETED)))
-                    .then(invokeSagaCompleteCallbacks(workSaga, ctx))
-                    .then(Mono.just(SagaResult.from(sagaName, ctx, Map.of(), result.getStepErrors(), workSaga.steps.keySet())));
+                    .then(invokeSagaCompleteCallbacks(workSaga, ctx, sagaResult))
+                    .thenReturn(sagaResult);
         }
 
         // Failure path: compensate, then DLQ
@@ -280,7 +281,7 @@ public class SagaEngine {
         return result;
     }
 
-    private Mono<Void> invokeSagaCompleteCallbacks(SagaDefinition saga, ExecutionContext ctx) {
+    private Mono<Void> invokeSagaCompleteCallbacks(SagaDefinition saga, ExecutionContext ctx, SagaResult sagaResult) {
         List<Method> methods = saga.onSagaCompleteMethods;
         if (methods == null || methods.isEmpty()) return Mono.empty();
 
@@ -293,7 +294,7 @@ public class SagaEngine {
             Mono<Void> invoke = Mono.fromRunnable(() -> {
                 try {
                     m.setAccessible(true);
-                    Object[] args = resolveCallbackArgs(m, ctx);
+                    Object[] args = resolveCallbackArgs(m, ctx, sagaResult);
                     m.invoke(bean, args);
                 } catch (Exception e) {
                     log.warn("[saga] @OnSagaComplete callback '{}' failed", m.getName(), e);

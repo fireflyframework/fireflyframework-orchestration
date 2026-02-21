@@ -55,19 +55,31 @@ public class TccBuilder {
     }
 
     public static TccBuilder tcc(String name) {
-        return new TccBuilder(name, 0L, false, 0, 0L);
+        return new TccBuilder(name, -1L, true, 3, 1000L);
     }
 
     public static TccBuilder named(String name) {
         return tcc(name);
     }
 
+    /**
+     * Creates a TCC builder with retry disabled.
+     */
+    public static TccBuilder tccNoRetry(String name) {
+        return new TccBuilder(name, -1L, false, 0, 0L);
+    }
+
     public static TccBuilder tcc(String name, long timeoutMs) {
-        return new TccBuilder(name, timeoutMs, false, 0, 0L);
+        return new TccBuilder(name, timeoutMs, true, 3, 1000L);
     }
 
     public static TccBuilder tcc(String name, long timeoutMs, boolean retryEnabled, int maxRetries, long backoffMs) {
         return new TccBuilder(name, timeoutMs, retryEnabled, maxRetries, backoffMs);
+    }
+
+    public TccBuilder triggerEventType(String eventType) {
+        this.tcc.triggerEventType = eventType != null ? eventType : "";
+        return this;
     }
 
     public Participant participant(String id) {
