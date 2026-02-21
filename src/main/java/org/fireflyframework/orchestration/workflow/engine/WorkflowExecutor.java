@@ -98,6 +98,12 @@ public class WorkflowExecutor {
         if (stepIds.size() == 1) {
             return executeStep(def, ctx, stepIds.get(0));
         }
+        int concurrency = def.layerConcurrency();
+        if (concurrency > 0) {
+            return Flux.fromIterable(stepIds)
+                    .flatMap(stepId -> executeStep(def, ctx, stepId), concurrency)
+                    .then();
+        }
         return Flux.fromIterable(stepIds)
                 .flatMap(stepId -> executeStep(def, ctx, stepId))
                 .then();
@@ -186,6 +192,9 @@ public class WorkflowExecutor {
                                             ctx.setStepLatency(stepId, latency);
                                             events.onStepSuccess(def.workflowId(), ctx.getCorrelationId(), stepId,
                                                     ctx.getAttempts(stepId), latency);
+                                            publishWorkflowStepEvent(def, stepDef, stepId, result, ctx)
+                                                    .then(invokeStepCompleteCallbacks(def, stepId, result, ctx))
+                                                    .subscribe();
                                         },
                                         error -> {
                                             ctx.setStepStatus(stepId, StepStatus.FAILED);

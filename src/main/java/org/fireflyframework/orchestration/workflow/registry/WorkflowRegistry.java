@@ -167,7 +167,7 @@ public class WorkflowRegistry {
                     List.copyOf(steps), wfAnn.triggerMode(), wfAnn.triggerEventType(),
                     wfAnn.timeoutMs(), wfRetryPolicy, bean,
                     onStepCompleteMethods, onWorkflowCompleteMethods, onWorkflowErrorMethods,
-                    wfAnn.publishEvents());
+                    wfAnn.publishEvents(), wfAnn.layerConcurrency());
 
             TopologyBuilder.validate(wfDef.steps(),
                     WorkflowStepDefinition::stepId,

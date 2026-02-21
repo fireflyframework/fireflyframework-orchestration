@@ -371,7 +371,7 @@ class EventWiringIntegrationTest {
                         bean, WorkflowSteps.class.getMethod("step1", Map.class),
                         null, 0, 0, null)),
                 TriggerMode.SYNC, "", 30000, RetryPolicy.DEFAULT, null, null, null, null,
-                false);  // publishEvents = false
+                false, 0);  // publishEvents = false
         registry.register(def);
 
         StepVerifier.create(engine.startWorkflow("no-publish-wf", Map.of("k", "v")))
@@ -411,7 +411,7 @@ class EventWiringIntegrationTest {
                         bean, WorkflowSteps.class.getMethod("step1", Map.class),
                         null, 0, 0, null)),
                 TriggerMode.SYNC, "", 30000, RetryPolicy.DEFAULT, null, null, null, null,
-                true);  // publishEvents = true
+                true, 0);  // publishEvents = true
         registry.register(def);
 
         StepVerifier.create(engine.startWorkflow("yes-publish-wf", Map.of("k", "v")))

@@ -34,4 +34,5 @@ public @interface Workflow {
     int maxRetries() default 3;
     long retryDelayMs() default 1000;
     boolean publishEvents() default false;
+    int layerConcurrency() default 0;
 }

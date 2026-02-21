@@ -37,7 +37,8 @@ public record WorkflowDefinition(
         List<Method> onStepCompleteMethods,
         List<Method> onWorkflowCompleteMethods,
         List<Method> onWorkflowErrorMethods,
-        boolean publishEvents
+        boolean publishEvents,
+        int layerConcurrency
 ) {
     /**
      * Backward-compatible constructor that defaults {@code publishEvents} to {@code false}.
@@ -49,7 +50,7 @@ public record WorkflowDefinition(
                                List<Method> onWorkflowCompleteMethods, List<Method> onWorkflowErrorMethods) {
         this(workflowId, name, description, version, steps, triggerMode, triggerEventType, timeoutMs,
                 retryPolicy, workflowBean, onStepCompleteMethods, onWorkflowCompleteMethods,
-                onWorkflowErrorMethods, false);
+                onWorkflowErrorMethods, false, 0);
     }
     public Optional<WorkflowStepDefinition> findStep(String stepId) {
         return steps.stream().filter(s -> s.stepId().equals(stepId)).findFirst();
