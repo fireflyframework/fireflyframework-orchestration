@@ -142,7 +142,8 @@ public class TccRegistry {
                 id, pAnn.order(), pAnn.timeoutMs(), pAnn.optional(), instance, instance,
                 tryM, tryTimeout, tryRetry, tryBackoff,
                 confirmM, confirmTimeout, confirmRetry, confirmBackoff,
-                cancelM, cancelTimeout, cancelRetry, cancelBackoff);
+                cancelM, cancelTimeout, cancelRetry, cancelBackoff,
+                pAnn.jitter(), pAnn.jitterFactor());
 
         TccEvent te = AnnotationUtils.findAnnotation(participantClass, TccEvent.class);
         if (te != null) pd.tccEvent = new TccEventConfig(te.topic(), te.eventType(), te.key());

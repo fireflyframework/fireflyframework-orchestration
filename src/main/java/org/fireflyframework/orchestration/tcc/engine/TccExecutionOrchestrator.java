@@ -131,7 +131,7 @@ public class TccExecutionOrchestrator {
         long backoffMs = pd.getEffectiveTryBackoff(state.tccDef.backoffMs);
 
         return stepInvoker.attemptCall(pd.bean, pd.tryMethod, input, state.ctx,
-                        timeoutMs, retry, backoffMs, false, 0.5, participantId, false)
+                        timeoutMs, retry, backoffMs, pd.jitter, pd.jitterFactor, participantId, false)
                 .doOnNext(result -> {
                     long latency = System.currentTimeMillis() - start;
                     state.ctx.putTryResult(participantId, result);
@@ -211,7 +211,7 @@ public class TccExecutionOrchestrator {
         long backoffMs = pd.getEffectiveConfirmBackoff(state.tccDef.backoffMs);
 
         return stepInvoker.attemptCall(pd.bean, pd.confirmMethod, tryResult, state.ctx,
-                        timeoutMs, retry, backoffMs, false, 0.5, participantId + ":confirm", false)
+                        timeoutMs, retry, backoffMs, pd.jitter, pd.jitterFactor, participantId + ":confirm", false)
                 .flatMap(result -> {
                     long latency = System.currentTimeMillis() - start;
                     TccResult.ParticipantOutcome prev = state.participantOutcomes.get(participantId);
@@ -256,23 +256,24 @@ public class TccExecutionOrchestrator {
             }
         }
 
-        return Flux.fromIterable(toCancel)
-                .concatMap(pd -> executeCancel(state, pd))
-                .collectList()
-                .map(results -> {
-                    long phaseDuration = System.currentTimeMillis() - phaseStart;
-                    boolean anyFailed = results.stream().anyMatch(b -> !b);
+        return saveCheckpoint(state, ExecutionStatus.CANCELING)
+                .then(Flux.fromIterable(toCancel)
+                        .concatMap(pd -> executeCancel(state, pd))
+                        .collectList()
+                        .map(results -> {
+                            long phaseDuration = System.currentTimeMillis() - phaseStart;
+                            boolean anyFailed = results.stream().anyMatch(b -> !b);
 
-                    if (anyFailed) {
-                        events.onPhaseFailed(state.tccDef.name, state.ctx.getCorrelationId(),
-                                TccPhase.CANCEL, state.failureError);
-                        return OrchestratorResult.failed(state);
-                    } else {
-                        events.onPhaseCompleted(state.tccDef.name, state.ctx.getCorrelationId(),
-                                TccPhase.CANCEL, phaseDuration);
-                        return OrchestratorResult.canceled(state);
-                    }
-                });
+                            if (anyFailed) {
+                                events.onPhaseFailed(state.tccDef.name, state.ctx.getCorrelationId(),
+                                        TccPhase.CANCEL, state.failureError);
+                                return OrchestratorResult.failed(state);
+                            } else {
+                                events.onPhaseCompleted(state.tccDef.name, state.ctx.getCorrelationId(),
+                                        TccPhase.CANCEL, phaseDuration);
+                                return OrchestratorResult.canceled(state);
+                            }
+                        }));
     }
 
     private Mono<Boolean> executeCancel(OrchestratorState state, TccParticipantDefinition pd) {
@@ -286,7 +287,7 @@ public class TccExecutionOrchestrator {
         long backoffMs = pd.getEffectiveCancelBackoff(state.tccDef.backoffMs);
 
         return stepInvoker.attemptCall(pd.bean, pd.cancelMethod, tryResult, state.ctx,
-                        timeoutMs, retry, backoffMs, false, 0.5, participantId + ":cancel", false)
+                        timeoutMs, retry, backoffMs, pd.jitter, pd.jitterFactor, participantId + ":cancel", false)
                 .doOnNext(result -> {
                     TccResult.ParticipantOutcome prev = state.participantOutcomes.get(participantId);
                     state.participantOutcomes.put(participantId, new TccResult.ParticipantOutcome(

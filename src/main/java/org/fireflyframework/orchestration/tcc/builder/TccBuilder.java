@@ -97,6 +97,8 @@ public class TccBuilder {
         private long cancelTimeoutMs = -1;
         private int cancelRetry = -1;
         private long cancelBackoffMs = -1;
+        private boolean jitter = false;
+        private double jitterFactor = 0.0;
         private Object handlerBean;
 
         private Participant(String id) {
@@ -115,6 +117,8 @@ public class TccBuilder {
         public Participant cancelTimeoutMs(long ms) { this.cancelTimeoutMs = ms; return this; }
         public Participant cancelRetry(int retry) { this.cancelRetry = retry; return this; }
         public Participant cancelBackoffMs(long ms) { this.cancelBackoffMs = ms; return this; }
+        public Participant jitter(boolean jitter) { this.jitter = jitter; return this; }
+        public Participant jitterFactor(double jitterFactor) { this.jitterFactor = jitterFactor; return this; }
 
         /**
          * Set all three handlers using a single object with annotated methods.
@@ -194,7 +198,8 @@ public class TccBuilder {
                     handlerBean, handlerBean,
                     tryMethod, tryTimeoutMs, tryRetry, tryBackoffMs,
                     confirmMethod, confirmTimeoutMs, confirmRetry, confirmBackoffMs,
-                    cancelMethod, cancelTimeoutMs, cancelRetry, cancelBackoffMs);
+                    cancelMethod, cancelTimeoutMs, cancelRetry, cancelBackoffMs,
+                    jitter, jitterFactor);
 
             if (tcc.participants.putIfAbsent(id, pd) != null) {
                 throw new IllegalStateException("Duplicate participant id '" + id + "' in TCC '" + tcc.name + "'");

@@ -29,4 +29,6 @@ public @interface TccParticipant {
     int order() default 0;
     long timeoutMs() default -1;
     boolean optional() default false;
+    boolean jitter() default false;
+    double jitterFactor() default 0.0;
 }

@@ -46,6 +46,9 @@ public class TccParticipantDefinition {
     public final int cancelRetry;
     public final long cancelBackoffMs;
 
+    public final boolean jitter;
+    public final double jitterFactor;
+
     public TccEventConfig tccEvent;
 
     public TccParticipantDefinition(
@@ -53,7 +56,8 @@ public class TccParticipantDefinition {
             Object bean, Object target,
             Method tryMethod, long tryTimeoutMs, int tryRetry, long tryBackoffMs,
             Method confirmMethod, long confirmTimeoutMs, int confirmRetry, long confirmBackoffMs,
-            Method cancelMethod, long cancelTimeoutMs, int cancelRetry, long cancelBackoffMs) {
+            Method cancelMethod, long cancelTimeoutMs, int cancelRetry, long cancelBackoffMs,
+            boolean jitter, double jitterFactor) {
         this.id = id;
         this.order = order;
         this.timeoutMs = timeoutMs;
@@ -72,6 +76,8 @@ public class TccParticipantDefinition {
         this.cancelTimeoutMs = cancelTimeoutMs;
         this.cancelRetry = cancelRetry;
         this.cancelBackoffMs = cancelBackoffMs;
+        this.jitter = jitter;
+        this.jitterFactor = jitterFactor;
     }
 
     public long getEffectiveTryTimeout(long defaultTimeout) {
