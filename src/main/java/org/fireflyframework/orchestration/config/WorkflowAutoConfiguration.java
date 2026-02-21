@@ -20,6 +20,7 @@ import org.fireflyframework.orchestration.core.dlq.DeadLetterService;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
+import org.fireflyframework.orchestration.core.observability.OrchestrationTracer;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.workflow.child.ChildWorkflowService;
 import org.fireflyframework.orchestration.workflow.continueasnew.ContinueAsNewService;
@@ -65,8 +66,10 @@ public class WorkflowAutoConfiguration {
                                               OrchestrationEvents events,
                                               OrchestrationEventPublisher eventPublisher,
                                               SignalService signalService,
-                                              TimerService timerService) {
-        return new WorkflowExecutor(stepInvoker, events, eventPublisher, signalService, timerService);
+                                              TimerService timerService,
+                                              ObjectProvider<ExecutionPersistenceProvider> persistence) {
+        return new WorkflowExecutor(stepInvoker, events, eventPublisher, signalService, timerService,
+                persistence.getIfAvailable());
     }
 
     @Bean
@@ -77,10 +80,11 @@ public class WorkflowAutoConfiguration {
                                           ExecutionPersistenceProvider persistence,
                                           OrchestrationEvents events,
                                           OrchestrationEventPublisher eventPublisher,
-                                          ObjectProvider<DeadLetterService> dlqService) {
+                                          ObjectProvider<DeadLetterService> dlqService,
+                                          ObjectProvider<OrchestrationTracer> tracer) {
         log.info("[orchestration] Workflow engine initialized");
         return new WorkflowEngine(registry, executor, stepInvoker, persistence, events, eventPublisher,
-                dlqService.getIfAvailable());
+                dlqService.getIfAvailable(), tracer.getIfAvailable());
     }
 
     @Bean

@@ -27,6 +27,7 @@ import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.StepStatus;
 import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
+import org.fireflyframework.orchestration.core.observability.OrchestrationTracer;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.persistence.ExecutionState;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
@@ -55,16 +56,24 @@ public class WorkflowEngine {
     private final OrchestrationEvents events;
     private final OrchestrationEventPublisher eventPublisher;
     private final DeadLetterService dlqService;
+    private final OrchestrationTracer tracer;
 
     public WorkflowEngine(WorkflowRegistry registry, WorkflowExecutor executor, StepInvoker stepInvoker,
                            ExecutionPersistenceProvider persistence, OrchestrationEvents events,
                            OrchestrationEventPublisher eventPublisher) {
-        this(registry, executor, stepInvoker, persistence, events, eventPublisher, null);
+        this(registry, executor, stepInvoker, persistence, events, eventPublisher, null, null);
     }
 
     public WorkflowEngine(WorkflowRegistry registry, WorkflowExecutor executor, StepInvoker stepInvoker,
                            ExecutionPersistenceProvider persistence, OrchestrationEvents events,
                            OrchestrationEventPublisher eventPublisher, DeadLetterService dlqService) {
+        this(registry, executor, stepInvoker, persistence, events, eventPublisher, dlqService, null);
+    }
+
+    public WorkflowEngine(WorkflowRegistry registry, WorkflowExecutor executor, StepInvoker stepInvoker,
+                           ExecutionPersistenceProvider persistence, OrchestrationEvents events,
+                           OrchestrationEventPublisher eventPublisher, DeadLetterService dlqService,
+                           OrchestrationTracer tracer) {
         this.registry = registry;
         this.executor = executor;
         this.stepInvoker = stepInvoker;
@@ -72,6 +81,7 @@ public class WorkflowEngine {
         this.events = events;
         this.eventPublisher = java.util.Objects.requireNonNull(eventPublisher, "eventPublisher");
         this.dlqService = dlqService;
+        this.tracer = tracer;
     }
 
     public Mono<ExecutionState> startWorkflow(String workflowId, Map<String, Object> input) {
@@ -104,7 +114,7 @@ public class WorkflowEngine {
                                 workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW)))
                         .then(Mono.defer(() -> {
                             // Execute the full workflow pipeline in the background
-                            executor.execute(def, ctx)
+                            tracedExecute(def, ctx)
                                     .flatMap(resultCtx -> {
                                         ExecutionState completedState = buildStateFromContext(workflowId, resultCtx, ExecutionStatus.COMPLETED);
                                         return persistence.save(completedState)
@@ -146,7 +156,7 @@ public class WorkflowEngine {
             return persistence.save(initialState)
                     .then(eventPublisher.publish(OrchestrationEvent.executionStarted(
                             workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW)))
-                    .then(executor.execute(def, ctx))
+                    .then(tracedExecute(def, ctx))
                     .flatMap(resultCtx -> {
                         ExecutionState completedState = buildStateFromContext(workflowId, resultCtx, ExecutionStatus.COMPLETED);
                         return persistence.save(completedState)
@@ -236,7 +246,7 @@ public class WorkflowEngine {
 
                     ExecutionState runningState = state.withStatus(ExecutionStatus.RUNNING);
                     return persistence.save(runningState)
-                            .then(executor.execute(def, ctx))
+                            .then(tracedExecute(def, ctx))
                             .flatMap(resultCtx -> {
                                 ExecutionState completed = buildStateFromContext(
                                         state.executionName(), resultCtx, ExecutionStatus.COMPLETED);
@@ -259,6 +269,15 @@ public class WorkflowEngine {
 
     public void registerWorkflow(WorkflowDefinition definition) {
         registry.register(definition);
+    }
+
+    private Mono<ExecutionContext> tracedExecute(WorkflowDefinition def, ExecutionContext ctx) {
+        Mono<ExecutionContext> execution = executor.execute(def, ctx);
+        if (tracer != null) {
+            execution = tracer.traceExecution(def.workflowId(), ExecutionPattern.WORKFLOW,
+                    ctx.getCorrelationId(), execution);
+        }
+        return execution;
     }
 
     private Mono<Void> saveToDlq(String workflowId, ExecutionContext ctx, Throwable error, Map<String, Object> inputs) {

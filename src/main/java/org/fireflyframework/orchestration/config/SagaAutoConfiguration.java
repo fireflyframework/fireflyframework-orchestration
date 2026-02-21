@@ -20,6 +20,7 @@ import org.fireflyframework.orchestration.core.dlq.DeadLetterService;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.model.CompensationPolicy;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
+import org.fireflyframework.orchestration.core.observability.OrchestrationTracer;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.saga.compensation.CompensationErrorHandler;
@@ -87,10 +88,12 @@ public class SagaAutoConfiguration {
                                   ExecutionPersistenceProvider persistence,
                                   ObjectProvider<DeadLetterService> dlqService,
                                   SagaCompensator compensator,
-                                  OrchestrationEventPublisher eventPublisher) {
+                                  OrchestrationEventPublisher eventPublisher,
+                                  ObjectProvider<OrchestrationTracer> tracer) {
         log.info("[orchestration] Saga engine initialized with compensation policy: {}",
                 properties.getSaga().getCompensationPolicy());
         return new SagaEngine(registry, events, orchestrator,
-                persistence, dlqService.getIfAvailable(), compensator, eventPublisher);
+                persistence, dlqService.getIfAvailable(), compensator, eventPublisher,
+                tracer.getIfAvailable());
     }
 }

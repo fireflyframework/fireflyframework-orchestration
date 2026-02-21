@@ -89,6 +89,7 @@ public class SchedulingPostProcessor implements SmartInitializingSingleton {
                 Map<String, Object> input = parseInput(schedAnn.input());
                 registerSchedule(sagaName, "saga", schedAnn.cron(), schedAnn.zone(),
                         schedAnn.fixedDelay(), schedAnn.fixedRate(), schedAnn.initialDelay(),
+                        schedAnn.description(),
                         () -> sagaEngine.execute(sagaName,
                                 input.isEmpty() ? StepInputs.empty() : StepInputs.of(input)).subscribe());
             }
@@ -111,6 +112,7 @@ public class SchedulingPostProcessor implements SmartInitializingSingleton {
                 Map<String, Object> input = parseInput(schedAnn.input());
                 registerSchedule(tccName, "tcc", schedAnn.cron(), schedAnn.zone(),
                         schedAnn.fixedDelay(), schedAnn.fixedRate(), schedAnn.initialDelay(),
+                        schedAnn.description(),
                         () -> tccEngine.execute(tccName,
                                 input.isEmpty() ? TccInputs.empty() : TccInputs.of(input)).subscribe());
             }
@@ -135,6 +137,7 @@ public class SchedulingPostProcessor implements SmartInitializingSingleton {
                 Map<String, Object> input = parseInput(schedAnn.input());
                 registerSchedule(workflowId, "workflow", schedAnn.cron(), schedAnn.zone(),
                         schedAnn.fixedDelay(), schedAnn.fixedRate(), schedAnn.initialDelay(),
+                        schedAnn.description(),
                         () -> workflowEngine.startWorkflow(workflowId, input).subscribe());
             }
         }
@@ -155,20 +158,22 @@ public class SchedulingPostProcessor implements SmartInitializingSingleton {
     }
 
     private void registerSchedule(String name, String type, String cron, String zone,
-                                  long fixedDelay, long fixedRate, long initialDelay, Runnable task) {
+                                  long fixedDelay, long fixedRate, long initialDelay,
+                                  String description, Runnable task) {
         String taskId = type + ":" + name;
         long effectiveInitialDelay = Math.max(initialDelay, 0);
+        String desc = (description != null && !description.isBlank()) ? " (" + description + ")" : "";
         if (cron != null && !cron.isBlank()) {
             scheduler.scheduleWithCron(taskId + ":cron", task, cron, zone);
-            log.info("[scheduling] Registered cron schedule for {} '{}'", type, name);
+            log.info("[scheduling] Registered cron schedule for {} '{}'{}", type, name, desc);
         }
         if (fixedRate > 0) {
             scheduler.scheduleAtFixedRate(taskId + ":rate", task, effectiveInitialDelay, fixedRate);
-            log.info("[scheduling] Registered fixed-rate schedule for {} '{}' every {}ms", type, name, fixedRate);
+            log.info("[scheduling] Registered fixed-rate schedule for {} '{}' every {}ms{}", type, name, fixedRate, desc);
         }
         if (fixedDelay > 0) {
             scheduler.scheduleWithFixedDelay(taskId + ":delay", task, effectiveInitialDelay, fixedDelay);
-            log.info("[scheduling] Registered fixed-delay schedule for {} '{}' every {}ms", type, name, fixedDelay);
+            log.info("[scheduling] Registered fixed-delay schedule for {} '{}' every {}ms{}", type, name, fixedDelay, desc);
         }
     }
 }

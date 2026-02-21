@@ -24,6 +24,7 @@ import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
+import org.fireflyframework.orchestration.core.observability.OrchestrationTracer;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.persistence.ExecutionState;
 import org.fireflyframework.orchestration.tcc.annotation.OnTccComplete;
@@ -53,17 +54,26 @@ public class TccEngine {
     private final ExecutionPersistenceProvider persistence;
     private final DeadLetterService dlqService;
     private final OrchestrationEventPublisher eventPublisher;
+    private final OrchestrationTracer tracer;
 
     public TccEngine(TccRegistry registry, OrchestrationEvents events,
                      TccExecutionOrchestrator orchestrator,
                      ExecutionPersistenceProvider persistence, DeadLetterService dlqService,
                      OrchestrationEventPublisher eventPublisher) {
+        this(registry, events, orchestrator, persistence, dlqService, eventPublisher, null);
+    }
+
+    public TccEngine(TccRegistry registry, OrchestrationEvents events,
+                     TccExecutionOrchestrator orchestrator,
+                     ExecutionPersistenceProvider persistence, DeadLetterService dlqService,
+                     OrchestrationEventPublisher eventPublisher, OrchestrationTracer tracer) {
         this.registry = registry;
         this.events = events;
         this.orchestrator = orchestrator;
         this.persistence = persistence;
         this.dlqService = dlqService;
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
+        this.tracer = tracer;
     }
 
     public Mono<TccResult> execute(String tccName, TccInputs inputs) {
@@ -92,10 +102,17 @@ public class TccEngine {
         final ExecutionContext finalCtx = ctx != null ? ctx : ExecutionContext.forTcc(null, tcc.name);
         Map<String, Object> inputMap = inputs != null ? inputs.asMap() : Map.of();
 
+        Mono<TccExecutionOrchestrator.OrchestratorResult> execution =
+                orchestrator.orchestrate(tcc, inputs, finalCtx);
+        if (tracer != null) {
+            execution = tracer.traceExecution(tcc.name, ExecutionPattern.TCC,
+                    finalCtx.getCorrelationId(), execution);
+        }
+
         return persistInitialState(tcc, finalCtx)
                 .then(eventPublisher.publish(OrchestrationEvent.executionStarted(
                         tcc.name, finalCtx.getCorrelationId(), ExecutionPattern.TCC)))
-                .then(orchestrator.orchestrate(tcc, inputs, finalCtx))
+                .then(execution)
                 .flatMap(result -> handleResult(result, tcc, inputMap))
                 .onErrorResume(err -> {
                     log.error("[tcc] Unexpected error executing TCC '{}': {}", tcc.name, err.getMessage(), err);

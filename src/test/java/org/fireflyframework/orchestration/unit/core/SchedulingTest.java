@@ -118,6 +118,18 @@ class SchedulingTest {
     @ScheduledWorkflow(fixedDelay = 2000)
     static class FixedDelayScheduledWorkflow {}
 
+    @Workflow(id = "disabled-wf")
+    @ScheduledWorkflow(fixedRate = 1000, enabled = false)
+    static class DisabledScheduledWorkflow {}
+
+    @Workflow(id = "zone-wf")
+    @ScheduledWorkflow(cron = "0 0 9 * * *", zone = "America/New_York")
+    static class ZonedScheduledWorkflow {}
+
+    @Workflow(id = "initial-delay-wf")
+    @ScheduledWorkflow(fixedRate = 5000, initialDelay = 2000)
+    static class InitialDelayScheduledWorkflow {}
+
     // --- Post-processor tests ---
 
     @Test
@@ -366,5 +378,55 @@ class SchedulingTest {
 
         scheduler.cancel("cron-count-1");
         assertThat(scheduler.activeTaskCount()).isEqualTo(1);
+    }
+
+    @Test
+    void scheduledWorkflow_enabledFalse_doesNotRegister() {
+        var spyScheduler = spy(scheduler);
+        var bean = new DisabledScheduledWorkflow();
+
+        when(applicationContext.getBeansWithAnnotation(Workflow.class))
+                .thenReturn(Map.of("disabledWf", bean));
+
+        var processor = new SchedulingPostProcessor(applicationContext, spyScheduler, null, null, workflowEngine);
+        processor.afterSingletonsInstantiated();
+
+        verify(spyScheduler, never()).scheduleAtFixedRate(any(), any(), anyLong(), anyLong());
+        verify(spyScheduler, never()).scheduleWithCron(any(), any(), any());
+        verify(spyScheduler, never()).scheduleWithCron(any(), any(), any(), any());
+    }
+
+    @Test
+    void scheduledWorkflow_zonePassedToCronScheduler() {
+        var spyScheduler = spy(scheduler);
+        var bean = new ZonedScheduledWorkflow();
+
+        when(applicationContext.getBeansWithAnnotation(Workflow.class))
+                .thenReturn(Map.of("zonedWf", bean));
+        lenient().when(workflowEngine.startWorkflow(eq("zone-wf"), any(Map.class)))
+                .thenReturn(Mono.empty());
+
+        var processor = new SchedulingPostProcessor(applicationContext, spyScheduler, null, null, workflowEngine);
+        processor.afterSingletonsInstantiated();
+
+        verify(spyScheduler).scheduleWithCron(
+                eq("workflow:zone-wf:cron"), any(Runnable.class), eq("0 0 9 * * *"), eq("America/New_York"));
+    }
+
+    @Test
+    void scheduledWorkflow_initialDelayPassedThrough() {
+        var spyScheduler = spy(scheduler);
+        var bean = new InitialDelayScheduledWorkflow();
+
+        when(applicationContext.getBeansWithAnnotation(Workflow.class))
+                .thenReturn(Map.of("initialDelayWf", bean));
+        lenient().when(workflowEngine.startWorkflow(eq("initial-delay-wf"), any(Map.class)))
+                .thenReturn(Mono.empty());
+
+        var processor = new SchedulingPostProcessor(applicationContext, spyScheduler, null, null, workflowEngine);
+        processor.afterSingletonsInstantiated();
+
+        verify(spyScheduler).scheduleAtFixedRate(
+                eq("workflow:initial-delay-wf:rate"), any(Runnable.class), eq(2000L), eq(5000L));
     }
 }

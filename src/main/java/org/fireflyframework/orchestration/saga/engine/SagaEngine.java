@@ -25,6 +25,7 @@ import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.StepStatus;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
+import org.fireflyframework.orchestration.core.observability.OrchestrationTracer;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.persistence.ExecutionState;
 import org.fireflyframework.orchestration.saga.annotation.OnSagaComplete;
@@ -57,11 +58,20 @@ public class SagaEngine {
     private final ExecutionPersistenceProvider persistence;
     private final DeadLetterService dlqService;
     private final OrchestrationEventPublisher eventPublisher;
+    private final OrchestrationTracer tracer;
 
     public SagaEngine(SagaRegistry registry, OrchestrationEvents events,
                        SagaExecutionOrchestrator orchestrator,
                        ExecutionPersistenceProvider persistence, DeadLetterService dlqService,
                        SagaCompensator compensator, OrchestrationEventPublisher eventPublisher) {
+        this(registry, events, orchestrator, persistence, dlqService, compensator, eventPublisher, null);
+    }
+
+    public SagaEngine(SagaRegistry registry, OrchestrationEvents events,
+                       SagaExecutionOrchestrator orchestrator,
+                       ExecutionPersistenceProvider persistence, DeadLetterService dlqService,
+                       SagaCompensator compensator, OrchestrationEventPublisher eventPublisher,
+                       OrchestrationTracer tracer) {
         this.registry = registry;
         this.events = events;
         this.orchestrator = orchestrator;
@@ -69,6 +79,7 @@ public class SagaEngine {
         this.dlqService = dlqService;
         this.compensator = compensator;
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
+        this.tracer = tracer;
     }
 
     public Mono<SagaResult> execute(String sagaName, StepInputs inputs) {
@@ -104,10 +115,17 @@ public class SagaEngine {
         // Persist initial state
         Mono<Void> persistSetup = persistInitialState(workSaga, finalCtx);
 
+        Mono<SagaExecutionOrchestrator.ExecutionResult> execution =
+                orchestrator.orchestrate(workSaga, inputs, finalCtx, overrideInputs);
+        if (tracer != null) {
+            execution = tracer.traceExecution(workSaga.name, ExecutionPattern.SAGA,
+                    finalCtx.getCorrelationId(), execution);
+        }
+
         return persistSetup
                 .then(eventPublisher.publish(OrchestrationEvent.executionStarted(
                         workSaga.name, finalCtx.getCorrelationId(), ExecutionPattern.SAGA)))
-                .then(orchestrator.orchestrate(workSaga, inputs, finalCtx, overrideInputs))
+                .then(execution)
                 .flatMap(result -> handleResult(result, workSaga, inputs, overrideInputs));
     }
 
