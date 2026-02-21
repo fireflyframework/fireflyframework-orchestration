@@ -146,18 +146,20 @@ public class SagaEngine {
                                   SagaExecutionOrchestrator.ExecutionResult result,
                                   Map<String, Object> inputs) {
         if (dlqService == null) return Mono.empty();
-        var firstEntry = result.getStepErrors().entrySet().stream().findFirst().orElse(null);
-        if (firstEntry == null) return Mono.empty();
-        String failedStep = firstEntry.getKey();
-        Throwable firstError = firstEntry.getValue();
-        DeadLetterEntry entry = DeadLetterEntry.create(
-                sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, failedStep,
-                ExecutionStatus.FAILED, firstError, inputs != null ? inputs : Map.of());
-        return dlqService.deadLetter(entry)
-                .onErrorResume(err -> {
-                    log.warn("[orchestration] Failed to save to DLQ: {}", ctx.getCorrelationId(), err);
-                    return Mono.empty();
-                });
+        if (result.getStepErrors().isEmpty()) return Mono.empty();
+
+        return Flux.fromIterable(result.getStepErrors().entrySet())
+                .flatMap(entry -> {
+                    DeadLetterEntry dlqEntry = DeadLetterEntry.create(
+                            sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, entry.getKey(),
+                            ExecutionStatus.FAILED, entry.getValue(), inputs != null ? inputs : Map.of());
+                    return dlqService.deadLetter(dlqEntry)
+                            .onErrorResume(err -> {
+                                log.warn("[orchestration] Failed to save step '{}' to DLQ", entry.getKey(), err);
+                                return Mono.empty();
+                            });
+                })
+                .then();
     }
 
     private Mono<Void> persistInitialState(SagaDefinition saga, ExecutionContext ctx) {
@@ -178,7 +180,8 @@ public class SagaEngine {
         ExecutionState state = new ExecutionState(
                 ctx.getCorrelationId(), ctx.getExecutionName(), ExecutionPattern.SAGA, status,
                 new HashMap<>(ctx.getStepResults()), new HashMap<>(ctx.getStepStatuses()),
-                Map.of(), Map.of(), new HashMap<>(ctx.getVariables()),
+                new HashMap<>(ctx.getStepAttempts()), new HashMap<>(ctx.getStepLatenciesMs()),
+                new HashMap<>(ctx.getVariables()),
                 new HashMap<>(ctx.getHeaders()), Set.copyOf(ctx.getIdempotencyKeys()),
                 ctx.getTopologyLayers(), null, ctx.getStartedAt(), Instant.now());
         return persistence.save(state)

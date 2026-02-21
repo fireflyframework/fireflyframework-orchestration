@@ -336,7 +336,7 @@ public class TccExecutionOrchestrator {
                 status,
                 new HashMap<>(ctx.getStepResults()),
                 new HashMap<>(ctx.getStepStatuses()),
-                Map.of(), Map.of(),
+                new HashMap<>(ctx.getStepAttempts()), new HashMap<>(ctx.getStepLatenciesMs()),
                 new HashMap<>(ctx.getVariables()),
                 new HashMap<>(ctx.getHeaders()),
                 Set.copyOf(ctx.getIdempotencyKeys()),

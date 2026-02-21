@@ -23,12 +23,15 @@ import org.fireflyframework.orchestration.core.dlq.InMemoryDeadLetterStore;
 import org.fireflyframework.orchestration.core.event.NoOpEventPublisher;
 import org.fireflyframework.orchestration.core.model.CompensationPolicy;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
+import org.fireflyframework.orchestration.core.persistence.ExecutionState;
+import org.fireflyframework.orchestration.core.persistence.InMemoryPersistenceProvider;
 import org.fireflyframework.orchestration.core.step.StepHandler;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.saga.builder.SagaBuilder;
 import org.fireflyframework.orchestration.saga.compensation.SagaCompensator;
 import org.fireflyframework.orchestration.saga.engine.SagaEngine;
 import org.fireflyframework.orchestration.saga.engine.SagaExecutionOrchestrator;
+import org.fireflyframework.orchestration.saga.engine.SagaResult;
 import org.fireflyframework.orchestration.saga.engine.StepInputs;
 import org.fireflyframework.orchestration.saga.registry.SagaDefinition;
 import org.fireflyframework.orchestration.tcc.builder.TccBuilder;
@@ -42,6 +45,8 @@ import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -178,5 +183,71 @@ class DlqInputCaptureTest {
         List<DeadLetterEntry> entries = dlqService.getAllEntries().collectList().block();
         assertThat(entries).hasSize(1);
         assertThat(entries.get(0).input()).isNotNull();
+    }
+
+    @Test
+    void saga_multiStepFailure_savesAllToDlq() {
+        var orchestrator = new SagaExecutionOrchestrator(stepInvoker, events, noOpPublisher);
+        var compensator = new SagaCompensator(events, CompensationPolicy.STRICT_SEQUENTIAL, stepInvoker);
+        var engine = new SagaEngine(null, events, orchestrator, null, dlqService, compensator, noOpPublisher);
+
+        // Two parallel steps (no dependsOn) that both fail
+        SagaDefinition saga = SagaBuilder.saga("MultiFailSaga")
+                .step("stepA")
+                    .handler((StepHandler<Object, String>) (input, ctx) ->
+                            Mono.error(new RuntimeException("stepA failed")))
+                    .add()
+                .step("stepB")
+                    .handler((StepHandler<Object, String>) (input, ctx) ->
+                            Mono.error(new RuntimeException("stepB failed")))
+                    .add()
+                .build();
+
+        StepVerifier.create(engine.execute(saga, null))
+                .assertNext(result -> assertThat(result.isSuccess()).isFalse())
+                .verifyComplete();
+
+        List<DeadLetterEntry> entries = dlqService.getAllEntries().collectList().block();
+        assertThat(entries).hasSizeGreaterThanOrEqualTo(2);
+
+        Set<String> dlqStepIds = entries.stream()
+                .map(DeadLetterEntry::stepId)
+                .collect(Collectors.toSet());
+        assertThat(dlqStepIds).contains("stepA", "stepB");
+    }
+
+    @Test
+    void saga_stepLatenciesArePersisted() {
+        var persistence = new InMemoryPersistenceProvider();
+        var orchestrator = new SagaExecutionOrchestrator(stepInvoker, events, noOpPublisher, persistence);
+        var compensator = new SagaCompensator(events, CompensationPolicy.STRICT_SEQUENTIAL, stepInvoker);
+        var engine = new SagaEngine(null, events, orchestrator, persistence, null, compensator, noOpPublisher);
+
+        SagaDefinition saga = SagaBuilder.saga("LatencySaga")
+                .step("fast")
+                    .handler((StepHandler<Object, String>) (input, ctx) -> Mono.just("done"))
+                    .add()
+                .step("slow")
+                    .dependsOn("fast")
+                    .handler((StepHandler<Object, String>) (input, ctx) ->
+                            Mono.delay(java.time.Duration.ofMillis(50)).thenReturn("done"))
+                    .add()
+                .build();
+
+        SagaResult result = engine.execute(saga, null).block();
+        assertThat(result).isNotNull();
+        assertThat(result.isSuccess()).isTrue();
+
+        ExecutionState state = persistence.findById(result.correlationId())
+                .block()
+                .orElseThrow();
+        assertThat(state.stepLatenciesMs()).isNotEmpty();
+        assertThat(state.stepLatenciesMs()).containsKey("fast");
+        assertThat(state.stepLatenciesMs()).containsKey("slow");
+        assertThat(state.stepLatenciesMs().get("slow")).isGreaterThanOrEqualTo(0L);
+
+        assertThat(state.stepAttempts()).isNotEmpty();
+        assertThat(state.stepAttempts()).containsKey("fast");
+        assertThat(state.stepAttempts()).containsKey("slow");
     }
 }

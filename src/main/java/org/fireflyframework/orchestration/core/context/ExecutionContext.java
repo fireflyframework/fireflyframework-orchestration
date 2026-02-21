@@ -131,9 +131,11 @@ public class ExecutionContext {
 
     public int incrementAttempts(String stepId) { return stepAttempts.merge(stepId, 1, Integer::sum); }
     public int getAttempts(String stepId) { return stepAttempts.getOrDefault(stepId, 0); }
+    public Map<String, Integer> getStepAttempts() { return Collections.unmodifiableMap(stepAttempts); }
 
     public void setStepLatency(String stepId, long millis) { stepLatenciesMs.put(stepId, millis); }
     public long getStepLatency(String stepId) { return stepLatenciesMs.getOrDefault(stepId, 0L); }
+    public Map<String, Long> getStepLatenciesMs() { return Collections.unmodifiableMap(stepLatenciesMs); }
 
     public void markStepStarted(String stepId) { stepStartedAt.put(stepId, Instant.now()); }
     public Instant getStepStartedAt(String stepId) { return stepStartedAt.get(stepId); }

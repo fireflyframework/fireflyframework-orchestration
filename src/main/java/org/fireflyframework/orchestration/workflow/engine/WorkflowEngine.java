@@ -432,7 +432,8 @@ public class WorkflowEngine {
     private ExecutionState buildStateFromContext(String workflowId, ExecutionContext ctx, ExecutionStatus status) {
         return new ExecutionState(ctx.getCorrelationId(), workflowId, ExecutionPattern.WORKFLOW, status,
                 new HashMap<>(ctx.getStepResults()), new HashMap<>(ctx.getStepStatuses()),
-                Map.of(), Map.of(), new HashMap<>(ctx.getVariables()),
+                new HashMap<>(ctx.getStepAttempts()), new HashMap<>(ctx.getStepLatenciesMs()),
+                new HashMap<>(ctx.getVariables()),
                 new HashMap<>(ctx.getHeaders()), Set.copyOf(ctx.getIdempotencyKeys()),
                 ctx.getTopologyLayers(), null, ctx.getStartedAt(), Instant.now());
     }

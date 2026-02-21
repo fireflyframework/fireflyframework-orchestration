@@ -183,7 +183,8 @@ public class TccEngine {
         ExecutionState state = new ExecutionState(
                 ctx.getCorrelationId(), ctx.getExecutionName(), ExecutionPattern.TCC, status,
                 new HashMap<>(ctx.getStepResults()), new HashMap<>(ctx.getStepStatuses()),
-                Map.of(), Map.of(), new HashMap<>(ctx.getVariables()),
+                new HashMap<>(ctx.getStepAttempts()), new HashMap<>(ctx.getStepLatenciesMs()),
+                new HashMap<>(ctx.getVariables()),
                 new HashMap<>(ctx.getHeaders()), Set.copyOf(ctx.getIdempotencyKeys()),
                 List.of(), null, ctx.getStartedAt(), Instant.now());
         return persistence.save(state)
