@@ -34,6 +34,7 @@ import reactor.core.publisher.Mono;
 import java.lang.reflect.Method;
 import java.time.Duration;
 import java.util.*;
+import java.util.function.Supplier;
 
 /**
  * Compensation coordinator implementing five strategies for saga rollback:
@@ -139,7 +140,8 @@ public class SagaCompensator {
                                     circuitOpen[0] = true;
                                     log.warn("[orchestration] Circuit opened after critical compensation failure: step={}", stepId);
                                 }
-                                return handleCompensationError(sagaName, stepId, err, ctx);
+                                Supplier<Mono<Void>> supplier = buildCompensationSupplier(saga, stepId, stepInputs, ctx);
+                                return handleCompensationError(sagaName, stepId, err, ctx, supplier);
                             });
                 })
                 .then();
@@ -164,11 +166,12 @@ public class SagaCompensator {
         // Handler-based compensation
         if (sd.handler != null) {
             Object arg = resolveCompensationArg(sd, stepInputs, ctx);
-            return ((Mono<Void>) ((StepHandler) sd.handler).compensate(arg, ctx))
+            Supplier<Mono<Void>> compSupplier = () -> ((Mono<Void>) ((StepHandler) sd.handler).compensate(arg, ctx));
+            return compSupplier.get()
                     .doOnSuccess(v -> markCompensated(sagaName, stepId, ctx))
                     .onErrorResume(err -> {
                         markCompensationFailed(sagaName, stepId, err, ctx);
-                        return handleCompensationError(sagaName, stepId, err, ctx);
+                        return handleCompensationError(sagaName, stepId, err, ctx, compSupplier);
                     })
                     .then();
         }
@@ -178,12 +181,14 @@ public class SagaCompensator {
         if (comp == null) return Mono.empty();
         Object arg = resolveMethodCompensationArg(comp, stepInputs.get(stepId), ctx.getResult(stepId));
         Object targetBean = sd.compensateBean != null ? sd.compensateBean : saga.bean;
+        Supplier<Mono<Void>> methodCompSupplier = () -> invoker.attemptCall(targetBean, comp, arg, ctx,
+                0, 0, 0, false, 0, stepId + "_comp", false).then();
         return invoker.attemptCall(targetBean, comp, arg, ctx, 0, 0, 0, false, 0, stepId + "_comp", false)
                 .doOnNext(obj -> ctx.putCompensationResult(stepId, obj))
                 .doOnSuccess(v -> markCompensated(sagaName, stepId, ctx))
                 .onErrorResume(err -> {
                     markCompensationFailed(sagaName, stepId, err, ctx);
-                    return handleCompensationError(sagaName, stepId, err, ctx);
+                    return handleCompensationError(sagaName, stepId, err, ctx, methodCompSupplier);
                 })
                 .then();
     }
@@ -213,7 +218,8 @@ public class SagaCompensator {
                     .doOnSuccess(v -> markCompensated(sagaName, stepId, ctx))
                     .doOnError(err -> markCompensationFailed(sagaName, stepId, err, ctx));
             if (swallowErrors) {
-                mono = mono.onErrorResume(err -> handleCompensationError(sagaName, stepId, err, ctx));
+                Supplier<Mono<Void>> retrySupplier = () -> ((Mono<Void>) ((StepHandler) sd.handler).compensate(arg, ctx));
+                mono = mono.onErrorResume(err -> handleCompensationError(sagaName, stepId, err, ctx, retrySupplier));
             }
             return mono;
         }
@@ -229,7 +235,9 @@ public class SagaCompensator {
                 .doOnSuccess(v -> markCompensated(sagaName, stepId, ctx))
                 .doOnError(err -> markCompensationFailed(sagaName, stepId, err, ctx));
         if (swallowErrors) {
-            mono = mono.onErrorResume(err -> handleCompensationError(sagaName, stepId, err, ctx));
+            Supplier<Mono<Void>> retryMethodSupplier = () -> invoker.attemptCall(targetBean, comp, arg, ctx,
+                    0, 0, 0, false, 0, stepId + "_comp", false).then();
+            mono = mono.onErrorResume(err -> handleCompensationError(sagaName, stepId, err, ctx, retryMethodSupplier));
         }
         return mono.then();
     }
@@ -237,9 +245,13 @@ public class SagaCompensator {
     /**
      * Delegates to the {@link CompensationErrorHandler} and translates the result into
      * the appropriate reactive signal.
+     *
+     * @param compensationSupplier if non-null, provides a fresh compensation {@link Mono}
+     *                              for the RETRY case to re-attempt compensation once.
      */
     private <T> Mono<T> handleCompensationError(String sagaName, String stepId,
-                                                  Throwable err, ExecutionContext ctx) {
+                                                  Throwable err, ExecutionContext ctx,
+                                                  Supplier<Mono<Void>> compensationSupplier) {
         CompensationErrorResult result = errorHandler.handle(sagaName, stepId, err, 0);
         return switch (result) {
             case CONTINUE -> {
@@ -248,10 +260,23 @@ public class SagaCompensator {
                 yield Mono.empty();
             }
             case RETRY -> {
-                log.debug("[orchestration] Error handler returned RETRY for step '{}' in saga '{}'",
+                log.debug("[orchestration] Error handler returned RETRY for step '{}' in saga '{}' — retrying once",
                         stepId, sagaName);
-                // RETRY is not directly applicable in the non-retry path; treat as CONTINUE
-                // The RETRY_WITH_BACKOFF policy handles retries via Reactor retry operators.
+                if (compensationSupplier != null) {
+                    @SuppressWarnings("unchecked")
+                    Mono<T> retryMono = (Mono<T>) compensationSupplier.get()
+                            .doOnSuccess(v -> {
+                                ctx.setStepStatus(stepId, StepStatus.COMPENSATED);
+                                events.onStepCompensated(sagaName, ctx.getCorrelationId(), stepId);
+                            })
+                            .onErrorResume(retryErr -> {
+                                log.warn("[orchestration] Retry of compensation for step '{}' also failed: {}",
+                                        stepId, retryErr.getMessage());
+                                return Mono.empty();
+                            })
+                            .then();
+                    yield retryMono;
+                }
                 yield Mono.empty();
             }
             case FAIL_SAGA -> {
@@ -272,6 +297,29 @@ public class SagaCompensator {
                 yield Mono.empty();
             }
         };
+    }
+
+    /**
+     * Builds a supplier that re-invokes the compensation logic for a given step.
+     * Used by the RETRY path to perform one additional compensation attempt.
+     */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private Supplier<Mono<Void>> buildCompensationSupplier(SagaDefinition saga, String stepId,
+                                                            Map<String, Object> stepInputs, ExecutionContext ctx) {
+        SagaStepDefinition sd = saga.steps.get(stepId);
+        if (sd == null) return () -> Mono.empty();
+
+        if (sd.handler != null) {
+            Object arg = resolveCompensationArg(sd, stepInputs, ctx);
+            return () -> ((Mono<Void>) ((StepHandler) sd.handler).compensate(arg, ctx));
+        }
+
+        Method comp = sd.compensateInvocationMethod != null ? sd.compensateInvocationMethod : sd.compensateMethod;
+        if (comp == null) return () -> Mono.empty();
+        Object arg = resolveMethodCompensationArg(comp, stepInputs.get(stepId), ctx.getResult(stepId));
+        Object targetBean = sd.compensateBean != null ? sd.compensateBean : saga.bean;
+        return () -> invoker.attemptCall(targetBean, comp, arg, ctx,
+                0, 0, 0, false, 0, stepId + "_comp", false).then();
     }
 
     @SuppressWarnings("unchecked")

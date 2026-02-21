@@ -239,6 +239,95 @@ class CompensationErrorHandlerWiringTest {
     }
 
     /**
+     * Handler returns RETRY. Compensation is re-attempted once.
+     * If retry succeeds, step is compensated normally.
+     */
+    @Test
+    void compensator_retriesOnce_whenHandlerReturnsRetry() {
+        AtomicInteger compensationAttempts = new AtomicInteger(0);
+
+        CompensationErrorHandler handler = (sagaName, stepId, error, attempt) ->
+                CompensationErrorResult.RETRY;
+
+        StepHandler<Object, String> failOnceCompensation = new StepHandler<>() {
+            @Override
+            public Mono<String> execute(Object input, ExecutionContext ctx) {
+                return Mono.just("done");
+            }
+            @Override
+            public Mono<Void> compensate(String result, ExecutionContext ctx) {
+                int attempt = compensationAttempts.incrementAndGet();
+                if (attempt == 1) {
+                    return Mono.error(new RuntimeException("first compensation fails"));
+                }
+                return Mono.empty(); // second attempt succeeds
+            }
+        };
+
+        SagaDefinition saga = SagaBuilder.saga("RetryTest")
+                .step("s1").handler(failOnceCompensation).add()
+                .step("s2").dependsOn("s1")
+                    .handler((StepHandler<Object, String>) (input, ctx) ->
+                            Mono.error(new RuntimeException("trigger compensation")))
+                    .add()
+                .build();
+
+        SagaEngine engine = createEngine(CompensationPolicy.STRICT_SEQUENTIAL, handler);
+
+        StepVerifier.create(engine.execute(saga, StepInputs.empty()))
+                .assertNext(result -> {
+                    assertThat(result.isSuccess()).isFalse();
+                    // Compensation should have been attempted twice (initial + retry)
+                    assertThat(compensationAttempts.get()).isEqualTo(2);
+                    // Step should be successfully compensated on retry
+                    assertThat(result.compensatedSteps()).contains("s1");
+                })
+                .verifyComplete();
+    }
+
+    /**
+     * Handler returns RETRY but retry also fails.
+     * Should fall back to CONTINUE behavior (swallow error, move on).
+     */
+    @Test
+    void compensator_retryAlsoFails_fallsBackToContinue() {
+        AtomicInteger compensationAttempts = new AtomicInteger(0);
+
+        CompensationErrorHandler handler = (sagaName, stepId, error, attempt) ->
+                CompensationErrorResult.RETRY;
+
+        StepHandler<Object, String> alwaysFailCompensation = new StepHandler<>() {
+            @Override
+            public Mono<String> execute(Object input, ExecutionContext ctx) {
+                return Mono.just("done");
+            }
+            @Override
+            public Mono<Void> compensate(String result, ExecutionContext ctx) {
+                compensationAttempts.incrementAndGet();
+                return Mono.error(new RuntimeException("always fails"));
+            }
+        };
+
+        SagaDefinition saga = SagaBuilder.saga("RetryFailTest")
+                .step("s1").handler(alwaysFailCompensation).add()
+                .step("s2").dependsOn("s1")
+                    .handler((StepHandler<Object, String>) (input, ctx) ->
+                            Mono.error(new RuntimeException("trigger compensation")))
+                    .add()
+                .build();
+
+        SagaEngine engine = createEngine(CompensationPolicy.STRICT_SEQUENTIAL, handler);
+
+        StepVerifier.create(engine.execute(saga, StepInputs.empty()))
+                .assertNext(result -> {
+                    assertThat(result.isSuccess()).isFalse();
+                    // Initial attempt + retry attempt
+                    assertThat(compensationAttempts.get()).isEqualTo(2);
+                })
+                .verifyComplete();
+    }
+
+    /**
      * DefaultCompensationErrorHandler returns CONTINUE. Compensation continues despite error.
      */
     @Test
