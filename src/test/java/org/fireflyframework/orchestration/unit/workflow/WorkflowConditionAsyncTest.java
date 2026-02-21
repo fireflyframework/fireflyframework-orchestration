@@ -58,7 +58,7 @@ class WorkflowConditionAsyncTest {
         var noOpPublisher = new NoOpEventPublisher();
         executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, noOpPublisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
-        engine = new WorkflowEngine(registry, executor, persistence, events, noOpPublisher);
+        engine = new WorkflowEngine(registry, executor, new StepInvoker(new ArgumentResolver()), persistence, events, noOpPublisher);
     }
 
     // ——————————— Test beans ———————————

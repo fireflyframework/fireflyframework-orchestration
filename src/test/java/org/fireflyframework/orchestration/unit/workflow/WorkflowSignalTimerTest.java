@@ -70,7 +70,7 @@ class WorkflowSignalTimerTest {
         timerService = new TimerService(events);
         var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, noOpPublisher,
                 signalService, timerService);
-        engine = new WorkflowEngine(registry, executor, persistence, events, noOpPublisher);
+        engine = new WorkflowEngine(registry, executor, new StepInvoker(new ArgumentResolver()), persistence, events, noOpPublisher);
     }
 
     // ── Test beans ────────────────────────────────────────────────────

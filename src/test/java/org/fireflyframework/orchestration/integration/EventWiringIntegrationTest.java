@@ -234,7 +234,7 @@ class EventWiringIntegrationTest {
         var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
-        var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
+        var engine = new WorkflowEngine(registry, executor, new StepInvoker(new ArgumentResolver()), persistence, events, publisher);
 
         var bean = new CallbackBean();
         List<Method> onStepCompleteMethods = List.of(
@@ -276,7 +276,7 @@ class EventWiringIntegrationTest {
         var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
-        var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
+        var engine = new WorkflowEngine(registry, executor, new StepInvoker(new ArgumentResolver()), persistence, events, publisher);
 
         var bean = new WorkflowSteps();
 
@@ -358,7 +358,7 @@ class EventWiringIntegrationTest {
         var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
-        var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
+        var engine = new WorkflowEngine(registry, executor, new StepInvoker(new ArgumentResolver()), persistence, events, publisher);
 
         var bean = new WorkflowSteps();
 
@@ -399,7 +399,7 @@ class EventWiringIntegrationTest {
         var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
-        var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
+        var engine = new WorkflowEngine(registry, executor, new StepInvoker(new ArgumentResolver()), persistence, events, publisher);
 
         var bean = new WorkflowSteps();
 
@@ -494,7 +494,7 @@ class EventWiringIntegrationTest {
         var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
-        var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
+        var engine = new WorkflowEngine(registry, executor, new StepInvoker(new ArgumentResolver()), persistence, events, publisher);
 
         var bean = new WorkflowSteps();
 

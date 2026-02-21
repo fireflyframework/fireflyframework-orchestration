@@ -73,12 +73,13 @@ public class WorkflowAutoConfiguration {
     @ConditionalOnMissingBean
     public WorkflowEngine workflowEngine(WorkflowRegistry registry,
                                           WorkflowExecutor executor,
+                                          StepInvoker stepInvoker,
                                           ExecutionPersistenceProvider persistence,
                                           OrchestrationEvents events,
                                           OrchestrationEventPublisher eventPublisher,
                                           ObjectProvider<DeadLetterService> dlqService) {
         log.info("[orchestration] Workflow engine initialized");
-        return new WorkflowEngine(registry, executor, persistence, events, eventPublisher,
+        return new WorkflowEngine(registry, executor, stepInvoker, persistence, events, eventPublisher,
                 dlqService.getIfAvailable());
     }
 

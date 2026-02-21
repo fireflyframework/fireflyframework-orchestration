@@ -53,7 +53,7 @@ class WorkflowEngineTest {
         var noOpPublisher = new org.fireflyframework.orchestration.core.event.NoOpEventPublisher();
         var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, noOpPublisher, null, null);
         persistence = new InMemoryPersistenceProvider();
-        engine = new WorkflowEngine(registry, executor, persistence, events, noOpPublisher);
+        engine = new WorkflowEngine(registry, executor, new StepInvoker(new ArgumentResolver()), persistence, events, noOpPublisher);
     }
 
     // Test bean for step execution

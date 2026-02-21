@@ -337,7 +337,7 @@ class EventPublishingTest {
         var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
-        var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
+        var engine = new WorkflowEngine(registry, executor, new StepInvoker(new ArgumentResolver()), persistence, events, publisher);
 
         var testSteps = new TestWorkflowSteps();
         var def = new WorkflowDefinition("wf-test", "Test WF", "test", "1.0",
@@ -367,7 +367,7 @@ class EventPublishingTest {
         var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
-        var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
+        var engine = new WorkflowEngine(registry, executor, new StepInvoker(new ArgumentResolver()), persistence, events, publisher);
 
         var testSteps = new TestWorkflowSteps();
         var def = new WorkflowDefinition("wf-event", "Event WF", "test", "1.0",
@@ -403,7 +403,7 @@ class EventPublishingTest {
         var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
-        var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
+        var engine = new WorkflowEngine(registry, executor, new StepInvoker(new ArgumentResolver()), persistence, events, publisher);
 
         var testSteps = new TestWorkflowSteps();
         var def = new WorkflowDefinition("wf-blank", "Blank WF", "test", "1.0",
@@ -433,7 +433,7 @@ class EventPublishingTest {
         var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, publisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
         var registry = new WorkflowRegistry();
-        var engine = new WorkflowEngine(registry, executor, persistence, events, publisher);
+        var engine = new WorkflowEngine(registry, executor, new StepInvoker(new ArgumentResolver()), persistence, events, publisher);
 
         var testSteps = new TestWorkflowSteps();
         var def = new WorkflowDefinition("wf-fail", "Fail WF", "test", "1.0",

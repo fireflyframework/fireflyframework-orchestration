@@ -59,7 +59,7 @@ class WorkflowDlqTest {
         var persistence = new InMemoryPersistenceProvider();
         dlqStore = new InMemoryDeadLetterStore();
         var dlqService = new DeadLetterService(dlqStore, events);
-        engine = new WorkflowEngine(registry, executor, persistence, events, noOpPublisher, dlqService);
+        engine = new WorkflowEngine(registry, executor, new StepInvoker(new ArgumentResolver()), persistence, events, noOpPublisher, dlqService);
     }
 
     @SuppressWarnings("unused")
@@ -106,7 +106,7 @@ class WorkflowDlqTest {
         var noOpPublisher = new NoOpEventPublisher();
         var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, noOpPublisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
-        var noDlqEngine = new WorkflowEngine(registry, executor, persistence, events, noOpPublisher);
+        var noDlqEngine = new WorkflowEngine(registry, executor, new StepInvoker(new ArgumentResolver()), persistence, events, noOpPublisher);
 
         var testSteps = new FailingSteps();
         var def = new WorkflowDefinition("no-dlq-wf", "No DLQ Workflow", "test", "1.0",

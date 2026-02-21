@@ -56,7 +56,7 @@ class WorkflowCompensationTest {
         var noOpPublisher = new NoOpEventPublisher();
         var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, noOpPublisher, null, null);
         var persistence = new InMemoryPersistenceProvider();
-        engine = new WorkflowEngine(registry, executor, persistence, events, noOpPublisher);
+        engine = new WorkflowEngine(registry, executor, new StepInvoker(new ArgumentResolver()), persistence, events, noOpPublisher);
     }
 
     // ——————————— Test beans ———————————
@@ -297,6 +297,45 @@ class WorkflowCompensationTest {
                     assertThat(state.status()).isEqualTo(ExecutionStatus.FAILED);
                     // No compensation should have run
                     assertThat(bean.compensationOrder).isEmpty();
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void compensationEmitsObservabilityEvents() throws Exception {
+        var compensationEvents = Collections.synchronizedList(new ArrayList<String>());
+        var trackingEvents = new OrchestrationEvents() {
+            @Override public void onCompensationStarted(String name, String correlationId) {
+                compensationEvents.add("compensationStarted:" + name);
+            }
+            @Override public void onStepCompensated(String name, String correlationId, String stepId) {
+                compensationEvents.add("stepCompensated:" + stepId);
+            }
+            @Override public void onStepCompensationFailed(String name, String correlationId, String stepId, Throwable error) {
+                compensationEvents.add("stepCompensationFailed:" + stepId);
+            }
+        };
+
+        var noOpPublisher = new NoOpEventPublisher();
+        var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), trackingEvents, noOpPublisher, null, null);
+        var localRegistry = new WorkflowRegistry();
+        var persistence = new InMemoryPersistenceProvider();
+        var localEngine = new WorkflowEngine(localRegistry, executor, new StepInvoker(new ArgumentResolver()), persistence, trackingEvents, noOpPublisher);
+
+        var bean = new CompensatableStepsBean();
+        var def = workflowDef("obs-comp-wf", List.of(
+                stepDef("stepA", List.of(), true, "compensateA", bean, "stepA"),
+                stepDef("stepB", List.of("stepA"), true, "compensateB", bean, "stepB"),
+                stepDef("stepC", List.of("stepB"), false, "", bean, "stepC")));
+        localRegistry.register(def);
+
+        StepVerifier.create(localEngine.startWorkflow("obs-comp-wf", Map.of()))
+                .assertNext(state -> {
+                    assertThat(state.status()).isEqualTo(ExecutionStatus.FAILED);
+                    assertThat(compensationEvents).contains(
+                            "compensationStarted:obs-comp-wf",
+                            "stepCompensated:stepB",
+                            "stepCompensated:stepA");
                 })
                 .verifyComplete();
     }

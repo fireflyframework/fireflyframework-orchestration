@@ -29,6 +29,7 @@ import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.persistence.ExecutionState;
+import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.workflow.annotation.OnWorkflowComplete;
 import org.fireflyframework.orchestration.workflow.annotation.OnWorkflowError;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowDefinition;
@@ -49,22 +50,24 @@ public class WorkflowEngine {
 
     private final WorkflowRegistry registry;
     private final WorkflowExecutor executor;
+    private final StepInvoker stepInvoker;
     private final ExecutionPersistenceProvider persistence;
     private final OrchestrationEvents events;
     private final OrchestrationEventPublisher eventPublisher;
     private final DeadLetterService dlqService;
 
-    public WorkflowEngine(WorkflowRegistry registry, WorkflowExecutor executor,
+    public WorkflowEngine(WorkflowRegistry registry, WorkflowExecutor executor, StepInvoker stepInvoker,
                            ExecutionPersistenceProvider persistence, OrchestrationEvents events,
                            OrchestrationEventPublisher eventPublisher) {
-        this(registry, executor, persistence, events, eventPublisher, null);
+        this(registry, executor, stepInvoker, persistence, events, eventPublisher, null);
     }
 
-    public WorkflowEngine(WorkflowRegistry registry, WorkflowExecutor executor,
+    public WorkflowEngine(WorkflowRegistry registry, WorkflowExecutor executor, StepInvoker stepInvoker,
                            ExecutionPersistenceProvider persistence, OrchestrationEvents events,
                            OrchestrationEventPublisher eventPublisher, DeadLetterService dlqService) {
         this.registry = registry;
         this.executor = executor;
+        this.stepInvoker = stepInvoker;
         this.persistence = persistence;
         this.events = events;
         this.eventPublisher = java.util.Objects.requireNonNull(eventPublisher, "eventPublisher");
@@ -293,6 +296,10 @@ public class WorkflowEngine {
         List<String> reversed = new ArrayList<>(compensatableSteps);
         Collections.reverse(reversed);
 
+        String workflowId = def.workflowId();
+        String correlationId = ctx.getCorrelationId();
+        events.onCompensationStarted(workflowId, correlationId);
+
         return Flux.fromIterable(reversed)
                 .concatMap(stepId -> {
                     WorkflowStepDefinition stepDef = def.findStep(stepId).orElse(null);
@@ -305,7 +312,6 @@ public class WorkflowEngine {
                     String compMethodName = stepDef.compensationMethod();
 
                     try {
-                        // Find the compensation method by name on the bean class
                         Method compMethod = findCompensationMethod(bean.getClass(), compMethodName);
                         if (compMethod == null) {
                             log.warn("[workflow] Compensation method '{}' not found on bean '{}'",
@@ -315,19 +321,37 @@ public class WorkflowEngine {
                         compMethod.setAccessible(true);
 
                         Object stepResult = ctx.getResult(stepId);
-                        Object[] args = resolveCompensationArgs(compMethod, stepResult, ctx);
-                        Object result = compMethod.invoke(bean, args);
 
-                        if (result instanceof Mono<?> mono) {
-                            return mono.then()
+                        if (stepInvoker != null) {
+                            return stepInvoker.attemptCall(bean, compMethod, stepResult, ctx,
+                                            stepDef.timeoutMs(), 1, 1000L, false, 0,
+                                            stepId + ":compensate", false)
+                                    .then(Mono.fromRunnable(() -> events.onStepCompensated(workflowId, correlationId, stepId)))
+                                    .then()
                                     .onErrorResume(e -> {
                                         log.warn("[workflow] Compensation failed for step '{}'", stepId, e);
+                                        events.onStepCompensationFailed(workflowId, correlationId, stepId, e);
                                         return Mono.empty();
                                     });
                         }
+
+                        // Fallback: raw invoke if no StepInvoker available
+                        Object[] args = resolveCompensationArgs(compMethod, stepResult, ctx);
+                        Object result = compMethod.invoke(bean, args);
+                        if (result instanceof Mono<?> mono) {
+                            return mono.then()
+                                    .doOnSuccess(v -> events.onStepCompensated(workflowId, correlationId, stepId))
+                                    .onErrorResume(e -> {
+                                        log.warn("[workflow] Compensation failed for step '{}'", stepId, e);
+                                        events.onStepCompensationFailed(workflowId, correlationId, stepId, e);
+                                        return Mono.empty();
+                                    });
+                        }
+                        events.onStepCompensated(workflowId, correlationId, stepId);
                         return Mono.empty();
                     } catch (Exception e) {
                         log.warn("[workflow] Compensation failed for step '{}'", stepId, e);
+                        events.onStepCompensationFailed(workflowId, correlationId, stepId, e);
                         return Mono.empty();
                     }
                 })

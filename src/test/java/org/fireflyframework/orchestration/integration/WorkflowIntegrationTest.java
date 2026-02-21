@@ -49,7 +49,7 @@ class WorkflowIntegrationTest {
         registry = new WorkflowRegistry();
         var noOpPublisher = new org.fireflyframework.orchestration.core.event.NoOpEventPublisher();
         var executor = new WorkflowExecutor(new StepInvoker(new ArgumentResolver()), events, noOpPublisher, null, null);
-        engine = new WorkflowEngine(registry, executor, persistence, events, noOpPublisher);
+        engine = new WorkflowEngine(registry, executor, new StepInvoker(new ArgumentResolver()), persistence, events, noOpPublisher);
     }
 
     @Test
