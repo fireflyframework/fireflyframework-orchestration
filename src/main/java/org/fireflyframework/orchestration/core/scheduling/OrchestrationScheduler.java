@@ -17,7 +17,10 @@
 package org.fireflyframework.orchestration.core.scheduling;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.support.CronExpression;
 
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -52,9 +55,28 @@ public class OrchestrationScheduler {
     }
 
     public void scheduleWithCron(String taskId, Runnable task, String cronExpression) {
-        // Simplified: for now, cron expressions are not parsed — use fixed rate
-        // Full cron support would use Spring's CronTrigger
-        log.warn("[scheduler] Cron scheduling for '{}' not yet implemented, use scheduleAtFixedRate", taskId);
+        CronExpression cron = CronExpression.parse(cronExpression);
+        scheduleNextCronExecution(taskId, task, cron);
+        log.info("[scheduler] Registered cron task '{}' with expression '{}'", taskId, cronExpression);
+    }
+
+    private void scheduleNextCronExecution(String taskId, Runnable task, CronExpression cron) {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime next = cron.next(now);
+        if (next == null) {
+            log.warn("[scheduler] Cron expression for '{}' has no future execution time", taskId);
+            return;
+        }
+        long delayMs = Duration.between(now, next).toMillis();
+        ScheduledFuture<?> future = executor.schedule(() -> {
+            try {
+                task.run();
+            } catch (Exception e) {
+                log.error("[scheduler] Cron task '{}' failed", taskId, e);
+            }
+            scheduleNextCronExecution(taskId, task, cron);
+        }, delayMs, TimeUnit.MILLISECONDS);
+        scheduledTasks.put(taskId, future);
     }
 
     public void cancel(String taskId) {

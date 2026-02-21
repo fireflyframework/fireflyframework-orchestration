@@ -29,13 +29,17 @@ import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceP
 import org.fireflyframework.orchestration.core.persistence.InMemoryPersistenceProvider;
 import org.fireflyframework.orchestration.core.recovery.RecoveryService;
 import org.fireflyframework.orchestration.core.scheduling.OrchestrationScheduler;
+import org.fireflyframework.orchestration.core.scheduling.SchedulingPostProcessor;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
+import org.fireflyframework.orchestration.saga.engine.SagaEngine;
+import org.fireflyframework.orchestration.tcc.engine.TccEngine;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 
 import java.util.ArrayList;
@@ -130,5 +134,16 @@ public class OrchestrationAutoConfiguration {
         log.info("[orchestration] Recovery service initialized with stale threshold: {}",
                 properties.getRecovery().getStaleThreshold());
         return new RecoveryService(persistence, events, properties.getRecovery().getStaleThreshold());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SchedulingPostProcessor schedulingPostProcessor(ApplicationContext applicationContext,
+                                                           OrchestrationScheduler scheduler,
+                                                           ObjectProvider<SagaEngine> sagaEngine,
+                                                           ObjectProvider<TccEngine> tccEngine) {
+        log.info("[orchestration] Scheduling post-processor initialized");
+        return new SchedulingPostProcessor(applicationContext, scheduler,
+                sagaEngine.getIfAvailable(), tccEngine.getIfAvailable());
     }
 }
