@@ -73,23 +73,26 @@ public class CircuitBreakerBackpressureStrategy implements BackpressureStrategy 
     }
 
     private <T, R> Mono<R> processItem(T item, ItemProcessor<T, R> processor) {
-        State current = state.get();
-
-        if (current == State.OPEN) {
+        // Attempt OPEN -> HALF_OPEN transition if timeout has elapsed
+        if (state.get() == State.OPEN) {
             if (Instant.now().isAfter(openedAt.plus(recoveryTimeout))) {
                 if (state.compareAndSet(State.OPEN, State.HALF_OPEN)) {
                     log.info("[circuit-breaker] Transitioning OPEN -> HALF_OPEN after recovery timeout");
                     halfOpenCallCount.set(0);
                     halfOpenSuccessCount.set(0);
                 }
-            } else {
-                log.debug("[circuit-breaker] Circuit is OPEN, rejecting item");
-                return Mono.error(new CircuitBreakerOpenException("Circuit breaker is OPEN"));
             }
         }
 
-        current = state.get();
-        if (current == State.HALF_OPEN) {
+        // Single snapshot for all remaining decisions
+        State snapshot = state.get();
+
+        if (snapshot == State.OPEN) {
+            log.debug("[circuit-breaker] Circuit is OPEN, rejecting item");
+            return Mono.error(new CircuitBreakerOpenException("Circuit breaker is OPEN"));
+        }
+
+        if (snapshot == State.HALF_OPEN) {
             int calls = halfOpenCallCount.incrementAndGet();
             if (calls > halfOpenMaxCalls) {
                 log.debug("[circuit-breaker] HALF_OPEN call limit reached, rejecting item");

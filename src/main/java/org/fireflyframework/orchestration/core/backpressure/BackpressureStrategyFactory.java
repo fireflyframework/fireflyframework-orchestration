@@ -19,11 +19,12 @@ package org.fireflyframework.orchestration.core.backpressure;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
  * Factory and registry for {@link BackpressureStrategy} instances.
  * <p>
- * Pre-registers the following strategies:
+ * Pre-registers the following strategy suppliers:
  * <ul>
  *     <li>{@code "adaptive"} — adaptive concurrency based on error rate</li>
  *     <li>{@code "batched"} — fixed-size batch processing</li>
@@ -31,10 +32,13 @@ import java.util.concurrent.ConcurrentHashMap;
  *     <li>{@code "circuit-breaker-aggressive"} — circuit breaker with low failure threshold</li>
  *     <li>{@code "circuit-breaker-conservative"} — circuit breaker with high failure threshold</li>
  * </ul>
+ * <p>
+ * Each call to {@link #getStrategy(String)} returns a fresh instance to avoid
+ * shared mutable state between callers.
  */
 public final class BackpressureStrategyFactory {
 
-    private static final ConcurrentHashMap<String, BackpressureStrategy> REGISTRY =
+    private static final ConcurrentHashMap<String, Supplier<BackpressureStrategy>> REGISTRY =
             new ConcurrentHashMap<>();
 
     static {
@@ -46,29 +50,33 @@ public final class BackpressureStrategyFactory {
     }
 
     /**
-     * Returns the strategy registered under the given name.
+     * Returns a fresh strategy instance registered under the given name.
      *
      * @param name the strategy name
-     * @return an {@link Optional} containing the strategy, or empty if not found
+     * @return an {@link Optional} containing a new strategy instance, or empty if not found
      */
     public static Optional<BackpressureStrategy> getStrategy(String name) {
-        return Optional.ofNullable(REGISTRY.get(name));
+        Supplier<BackpressureStrategy> supplier = REGISTRY.get(name);
+        return supplier != null ? Optional.of(supplier.get()) : Optional.empty();
     }
 
     /**
-     * Registers a strategy under the given name, replacing any previous registration.
+     * Registers a strategy supplier under the given name, replacing any previous registration.
      *
      * @param name     the strategy name
-     * @param strategy the strategy instance
+     * @param supplier the strategy supplier that creates fresh instances
      */
-    public static void registerStrategy(String name, BackpressureStrategy strategy) {
-        REGISTRY.put(name, strategy);
+    public static void registerStrategy(String name, Supplier<BackpressureStrategy> supplier) {
+        REGISTRY.put(name, supplier);
     }
 
     /**
      * Creates a {@link BackpressureStrategy} from the given configuration.
      * <p>
      * The strategy type is determined by the {@link BackpressureConfig#strategy()} field.
+     * Only the base strategy names ({@code "adaptive"}, {@code "batched"},
+     * {@code "circuit-breaker"}) are supported. For sub-variant presets such as
+     * {@code "circuit-breaker-aggressive"}, use {@link #getStrategy(String)} directly.
      *
      * @param config the backpressure configuration
      * @return the configured strategy
@@ -83,12 +91,11 @@ public final class BackpressureStrategyFactory {
                     config.errorRateThreshold()
             );
             case "batched" -> new BatchedBackpressureStrategy(config.batchSize());
-            case "circuit-breaker", "circuit-breaker-aggressive", "circuit-breaker-conservative" ->
-                    new CircuitBreakerBackpressureStrategy(
-                            config.failureThreshold(),
-                            config.recoveryTimeout(),
-                            config.halfOpenMaxCalls()
-                    );
+            case "circuit-breaker" -> new CircuitBreakerBackpressureStrategy(
+                    config.failureThreshold(),
+                    config.recoveryTimeout(),
+                    config.halfOpenMaxCalls()
+            );
             default -> throw new IllegalArgumentException(
                     "Unknown backpressure strategy: " + config.strategy());
         };
@@ -103,12 +110,12 @@ public final class BackpressureStrategyFactory {
     }
 
     private static void registerDefaults() {
-        REGISTRY.put("adaptive", new AdaptiveBackpressureStrategy());
-        REGISTRY.put("batched", new BatchedBackpressureStrategy());
-        REGISTRY.put("circuit-breaker", new CircuitBreakerBackpressureStrategy());
+        REGISTRY.put("adaptive", AdaptiveBackpressureStrategy::new);
+        REGISTRY.put("batched", BatchedBackpressureStrategy::new);
+        REGISTRY.put("circuit-breaker", CircuitBreakerBackpressureStrategy::new);
         REGISTRY.put("circuit-breaker-aggressive",
-                new CircuitBreakerBackpressureStrategy(2, Duration.ofSeconds(60), 1));
+                () -> new CircuitBreakerBackpressureStrategy(2, Duration.ofSeconds(60), 1));
         REGISTRY.put("circuit-breaker-conservative",
-                new CircuitBreakerBackpressureStrategy(10, Duration.ofSeconds(15), 5));
+                () -> new CircuitBreakerBackpressureStrategy(10, Duration.ofSeconds(15), 5));
     }
 }

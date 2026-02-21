@@ -17,6 +17,7 @@
 package org.fireflyframework.orchestration.core.backpressure;
 
 import java.time.Duration;
+import java.util.Objects;
 
 /**
  * Configuration for backpressure strategies.
@@ -42,6 +43,18 @@ public record BackpressureConfig(
         int minConcurrency,
         double errorRateThreshold
 ) {
+
+    public BackpressureConfig {
+        Objects.requireNonNull(strategy, "strategy must not be null");
+        Objects.requireNonNull(recoveryTimeout, "recoveryTimeout must not be null");
+        if (batchSize < 1) throw new IllegalArgumentException("batchSize must be >= 1");
+        if (failureThreshold < 1) throw new IllegalArgumentException("failureThreshold must be >= 1");
+        if (halfOpenMaxCalls < 1) throw new IllegalArgumentException("halfOpenMaxCalls must be >= 1");
+        if (maxConcurrency < minConcurrency)
+            throw new IllegalArgumentException("maxConcurrency must be >= minConcurrency");
+        if (errorRateThreshold < 0 || errorRateThreshold > 1)
+            throw new IllegalArgumentException("errorRateThreshold must be in [0, 1]");
+    }
 
     /**
      * Returns a default configuration suitable for general-purpose use.

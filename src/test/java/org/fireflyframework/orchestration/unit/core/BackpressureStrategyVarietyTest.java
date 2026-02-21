@@ -177,13 +177,20 @@ class BackpressureStrategyVarietyTest {
         assertThat(BackpressureStrategyFactory.getStrategy("nonexistent"))
                 .isEmpty();
 
-        // Verify custom registration
-        BackpressureStrategy custom = new BatchedBackpressureStrategy(5);
-        BackpressureStrategyFactory.registerStrategy("custom", custom);
+        // Verify custom registration with supplier
+        BackpressureStrategyFactory.registerStrategy("custom", () -> new BatchedBackpressureStrategy(5));
         assertThat(BackpressureStrategyFactory.getStrategy("custom"))
                 .isPresent()
                 .get()
-                .isSameAs(custom);
+                .isInstanceOf(BatchedBackpressureStrategy.class);
+    }
+
+    @Test
+    void factory_returnsFreshInstances() {
+        BackpressureStrategy first = BackpressureStrategyFactory.getStrategy("circuit-breaker").orElseThrow();
+        BackpressureStrategy second = BackpressureStrategyFactory.getStrategy("circuit-breaker").orElseThrow();
+
+        assertThat(first).isNotSameAs(second);
     }
 
     @Test
@@ -212,6 +219,82 @@ class BackpressureStrategyVarietyTest {
         BackpressureConfig unknownConfig = new BackpressureConfig(
                 "unknown", 10, 5, Duration.ofSeconds(30), 3, 4, 16, 1, 0.1);
         assertThatThrownBy(() -> BackpressureStrategyFactory.fromConfig(unknownConfig))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unknown backpressure strategy");
+    }
+
+    @Test
+    void config_rejectsNullStrategy() {
+        assertThatThrownBy(() -> new BackpressureConfig(
+                null, 10, 5, Duration.ofSeconds(30), 3, 4, 16, 1, 0.1))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("strategy must not be null");
+    }
+
+    @Test
+    void config_rejectsNullRecoveryTimeout() {
+        assertThatThrownBy(() -> new BackpressureConfig(
+                "adaptive", 10, 5, null, 3, 4, 16, 1, 0.1))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessageContaining("recoveryTimeout must not be null");
+    }
+
+    @Test
+    void config_rejectsInvalidBatchSize() {
+        assertThatThrownBy(() -> new BackpressureConfig(
+                "batched", 0, 5, Duration.ofSeconds(30), 3, 4, 16, 1, 0.1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("batchSize must be >= 1");
+    }
+
+    @Test
+    void config_rejectsInvalidFailureThreshold() {
+        assertThatThrownBy(() -> new BackpressureConfig(
+                "circuit-breaker", 10, 0, Duration.ofSeconds(30), 3, 4, 16, 1, 0.1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("failureThreshold must be >= 1");
+    }
+
+    @Test
+    void config_rejectsInvalidHalfOpenMaxCalls() {
+        assertThatThrownBy(() -> new BackpressureConfig(
+                "circuit-breaker", 10, 5, Duration.ofSeconds(30), 0, 4, 16, 1, 0.1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("halfOpenMaxCalls must be >= 1");
+    }
+
+    @Test
+    void config_rejectsMaxConcurrencyLessThanMin() {
+        assertThatThrownBy(() -> new BackpressureConfig(
+                "adaptive", 10, 5, Duration.ofSeconds(30), 3, 4, 2, 8, 0.1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("maxConcurrency must be >= minConcurrency");
+    }
+
+    @Test
+    void config_rejectsErrorRateThresholdOutOfRange() {
+        assertThatThrownBy(() -> new BackpressureConfig(
+                "adaptive", 10, 5, Duration.ofSeconds(30), 3, 4, 16, 1, -0.1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("errorRateThreshold must be in [0, 1]");
+
+        assertThatThrownBy(() -> new BackpressureConfig(
+                "adaptive", 10, 5, Duration.ofSeconds(30), 3, 4, 16, 1, 1.1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("errorRateThreshold must be in [0, 1]");
+    }
+
+    @Test
+    void fromConfig_rejectsSubVariants() {
+        BackpressureConfig aggressiveConfig = new BackpressureConfig(
+                "circuit-breaker-aggressive", 10, 2, Duration.ofSeconds(60), 1, 4, 16, 1, 0.1);
+        assertThatThrownBy(() -> BackpressureStrategyFactory.fromConfig(aggressiveConfig))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Unknown backpressure strategy");
+
+        BackpressureConfig conservativeConfig = new BackpressureConfig(
+                "circuit-breaker-conservative", 10, 10, Duration.ofSeconds(15), 5, 4, 16, 1, 0.1);
+        assertThatThrownBy(() -> BackpressureStrategyFactory.fromConfig(conservativeConfig))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Unknown backpressure strategy");
     }
