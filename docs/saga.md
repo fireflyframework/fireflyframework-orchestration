@@ -3,16 +3,16 @@
 # Part III: Saga Pattern
 
 **Contents:**
-- [§12 Saga Annotation Reference](#12-saga-annotation-reference)
-- [§13 Saga Tutorial](#13-saga-tutorial)
-- [§14 Saga Compensation Deep Dive](#14-saga-compensation-deep-dive)
-- [§15 ExpandEach (Fan-Out)](#15-expandeach-fan-out)
-- [§16 Saga Builder DSL](#16-saga-builder-dsl)
-- [§17 SagaEngine API](#17-sagaengine-api)
-- [§18 SagaResult](#18-sagaresult)
-- [§19 Saga Composition](#19-saga-composition)
+- [§13 Saga Annotation Reference](#13-saga-annotation-reference)
+- [§14 Saga Tutorial](#14-saga-tutorial)
+- [§15 Saga Compensation Deep Dive](#15-saga-compensation-deep-dive)
+- [§16 ExpandEach (Fan-Out)](#16-expandeach-fan-out)
+- [§17 Saga Builder DSL](#17-saga-builder-dsl)
+- [§18 SagaEngine API](#18-sagaengine-api)
+- [§19 SagaResult](#19-sagaresult)
+- [§20 Saga Composition](#20-saga-composition)
 
-## 12. Saga Annotation Reference
+## 13. Saga Annotation Reference
 
 ### @Saga
 
@@ -145,7 +145,7 @@ Schedules automatic execution of a saga. This annotation is `@Repeatable`.
 
 ---
 
-## 13. Saga Tutorial
+## 14. Saga Tutorial
 
 A **Saga** is a sequence of local transactions where each step has a **compensating action**. If any step fails, the saga engine automatically runs compensations for all completed steps.
 
@@ -268,7 +268,7 @@ public class InventoryService {
 
 ---
 
-## 14. Saga Compensation Deep Dive
+## 15. Saga Compensation Deep Dive
 
 When a saga step fails, the engine compensates all previously completed steps. The **compensation policy** determines how those compensations execute.
 
@@ -283,7 +283,7 @@ firefly:
       compensation-policy: STRICT_SEQUENTIAL
 ```
 
-Or programmatically via the builder (see [§16](#16-saga-builder-dsl)).
+Or programmatically via the builder (see [§17](#17-saga-builder-dsl)).
 
 ### CompensationPolicy Enum Values
 
@@ -524,7 +524,7 @@ CompensationErrorHandler composite = CompensationErrorHandlerFactory.composite(
 
 ---
 
-## 15. ExpandEach (Fan-Out)
+## 16. ExpandEach (Fan-Out)
 
 `ExpandEach` dynamically clones a saga step for each item in a collection. This is useful for processing a batch of items where each needs its own step instance with independent retry and compensation.
 
@@ -568,7 +568,7 @@ Each expanded step instance is compensated independently. If `reserve:SKU-002` f
 
 ---
 
-## 16. Saga Builder DSL
+## 17. Saga Builder DSL
 
 The programmatic builder provides a fluent API for constructing sagas without annotations — useful for dynamic composition, testing, or runtime configuration.
 
@@ -661,7 +661,7 @@ SagaDefinition def = SagaBuilder.saga("OrderSaga")
 
 ---
 
-## 17. SagaEngine API
+## 18. SagaEngine API
 
 `SagaEngine` is the primary entry point for saga execution. It supports both annotation-registered and builder-created saga definitions.
 
@@ -707,7 +707,7 @@ sagaEngine.execute("MySaga", Map.of("debit", request, "credit", creditRequest));
 
 ---
 
-## 18. SagaResult
+## 19. SagaResult
 
 `SagaResult` is an immutable snapshot of a completed saga execution. It provides both high-level success/failure status and per-step details.
 
@@ -825,7 +825,7 @@ sagaEngine.execute("TransferFunds", StepInputs.of("debit", request))
 
 ---
 
-## 19. Saga Composition
+## 20. Saga Composition
 
 ### Overview
 

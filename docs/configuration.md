@@ -7,7 +7,7 @@
 - [§39 Auto-Configuration Chain](#39-auto-configuration-chain)
 - [§40 Spring Boot Integration](#40-spring-boot-integration)
 
-## 38. Configuration Properties
+## 46. Configuration Properties
 
 All properties are prefixed with `firefly.orchestration`.
 
@@ -128,7 +128,7 @@ firefly:
 
 ---
 
-## 39. Auto-Configuration Chain
+## 47. Auto-Configuration Chain
 
 The module's auto-configurations load in a specific order to ensure dependencies are available.
 
@@ -245,7 +245,7 @@ public class CustomOrchestrationConfig {
 
 ---
 
-## 40. Spring Boot Integration
+## 48. Spring Boot Integration
 
 ### Including the Starter
 
