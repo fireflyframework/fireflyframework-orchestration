@@ -24,6 +24,7 @@ import org.fireflyframework.orchestration.core.observability.OrchestrationTracer
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.saga.compensation.CompensationErrorHandler;
+import org.fireflyframework.orchestration.saga.compensation.CompensationErrorHandlerFactory;
 import org.fireflyframework.orchestration.saga.compensation.DefaultCompensationErrorHandler;
 import org.fireflyframework.orchestration.saga.compensation.SagaCompensator;
 import org.fireflyframework.orchestration.saga.composition.CompositionTemplateRegistry;
@@ -68,8 +69,15 @@ public class SagaAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean(CompensationErrorHandler.class)
-    public CompensationErrorHandler compensationErrorHandler() {
-        return new DefaultCompensationErrorHandler();
+    public CompensationErrorHandler compensationErrorHandler(OrchestrationProperties properties) {
+        String handlerName = properties.getSaga().getCompensationErrorHandler();
+        log.info("[orchestration] Creating compensation error handler: {}", handlerName);
+        return CompensationErrorHandlerFactory.getHandler(handlerName)
+                .orElseGet(() -> {
+                    log.warn("[orchestration] Unknown compensation error handler '{}', falling back to default",
+                            handlerName);
+                    return new DefaultCompensationErrorHandler();
+                });
     }
 
     @Bean
