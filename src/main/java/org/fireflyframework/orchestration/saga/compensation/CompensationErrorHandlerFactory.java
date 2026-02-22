@@ -74,6 +74,16 @@ public final class CompensationErrorHandlerFactory {
     }
 
     /**
+     * Registers a handler instance under the given name.
+     *
+     * @param name    the handler name
+     * @param handler the handler instance (returned directly on each lookup)
+     */
+    public static void registerHandler(String name, CompensationErrorHandler handler) {
+        REGISTRY.put(name, () -> handler);
+    }
+
+    /**
      * Creates a {@link CompositeCompensationErrorHandler} from the given handlers.
      *
      * @param handlers the handlers to compose, evaluated in order
