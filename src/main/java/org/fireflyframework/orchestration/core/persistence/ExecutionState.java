@@ -87,4 +87,12 @@ public record ExecutionState(
     public boolean isTerminal() {
         return status != null && status.isTerminal();
     }
+
+    public boolean isSuccess() {
+        return status == ExecutionStatus.COMPLETED || status == ExecutionStatus.CONFIRMED;
+    }
+
+    public boolean isFailed() {
+        return status == ExecutionStatus.FAILED;
+    }
 }

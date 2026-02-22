@@ -32,6 +32,7 @@ import org.fireflyframework.orchestration.tcc.composition.TccCompositor;
 import org.fireflyframework.orchestration.tcc.engine.TccEngine;
 import org.fireflyframework.orchestration.tcc.engine.TccExecutionOrchestrator;
 import org.fireflyframework.orchestration.tcc.registry.TccRegistry;
+import org.fireflyframework.orchestration.core.validation.OrchestrationValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -52,9 +53,10 @@ public class TccAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public TccRegistry tccRegistry(ApplicationContext applicationContext) {
+    public TccRegistry tccRegistry(ApplicationContext applicationContext,
+                                    ObjectProvider<OrchestrationValidator> validator) {
         log.info("[orchestration] TCC registry initialized");
-        return new TccRegistry(applicationContext);
+        return new TccRegistry(applicationContext, validator.getIfAvailable());
     }
 
     @Bean

@@ -131,15 +131,8 @@ public class WorkflowEngine {
                                             .then(Mono.defer(() -> {
                                                 boolean suppress = shouldSuppressError(def, ctx, error);
                                                 ExecutionStatus status = suppress ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
-                                                ExecutionState finalState;
-                                                if (suppress) {
-                                                    finalState = buildStateFromContext(workflowId, ctx, ExecutionStatus.COMPLETED);
-                                                } else {
-                                                    ExecutionReport failedReport = ExecutionReportBuilder.fromContext(
-                                                            ctx, ExecutionStatus.FAILED, error.getMessage());
-                                                    finalState = initialState.withFailure(error.getMessage())
-                                                            .withReport(failedReport);
-                                                }
+                                                String reason = suppress ? null : error.getMessage();
+                                                ExecutionState finalState = buildStateFromContext(workflowId, ctx, status, reason);
                                                 return persistence.save(finalState)
                                                         .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                                                                 workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, status)))
@@ -179,15 +172,8 @@ public class WorkflowEngine {
                             .then(Mono.defer(() -> {
                                 boolean suppress = shouldSuppressError(def, ctx, error);
                                 ExecutionStatus status = suppress ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
-                                ExecutionState finalState;
-                                if (suppress) {
-                                    finalState = buildStateFromContext(workflowId, ctx, ExecutionStatus.COMPLETED);
-                                } else {
-                                    ExecutionReport failedReport = ExecutionReportBuilder.fromContext(
-                                            ctx, ExecutionStatus.FAILED, error.getMessage());
-                                    finalState = initialState.withFailure(error.getMessage())
-                                            .withReport(failedReport);
-                                }
+                                String reason = suppress ? null : error.getMessage();
+                                ExecutionState finalState = buildStateFromContext(workflowId, ctx, status, reason);
                                 return persistence.save(finalState)
                                         .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                                                 workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, status)))
@@ -267,7 +253,8 @@ public class WorkflowEngine {
                                 return persistence.save(completed).thenReturn(completed);
                             })
                             .onErrorResume(error -> {
-                                ExecutionState failed = runningState.withFailure(error.getMessage());
+                                ExecutionState failed = buildStateFromContext(
+                                        state.executionName(), ctx, ExecutionStatus.FAILED, error.getMessage());
                                 return persistence.save(failed).thenReturn(failed);
                             });
                 });
@@ -463,13 +450,18 @@ public class WorkflowEngine {
     }
 
     private ExecutionState buildStateFromContext(String workflowId, ExecutionContext ctx, ExecutionStatus status) {
-        ExecutionReport report = ExecutionReportBuilder.fromContext(ctx, status, null);
+        return buildStateFromContext(workflowId, ctx, status, null);
+    }
+
+    private ExecutionState buildStateFromContext(String workflowId, ExecutionContext ctx,
+                                                  ExecutionStatus status, String failureReason) {
+        ExecutionReport report = ExecutionReportBuilder.fromContext(ctx, status, failureReason);
         return new ExecutionState(ctx.getCorrelationId(), workflowId, ExecutionPattern.WORKFLOW, status,
                 new HashMap<>(ctx.getStepResults()), new HashMap<>(ctx.getStepStatuses()),
                 new HashMap<>(ctx.getStepAttempts()), new HashMap<>(ctx.getStepLatenciesMs()),
                 new HashMap<>(ctx.getVariables()),
                 new HashMap<>(ctx.getHeaders()), Set.copyOf(ctx.getIdempotencyKeys()),
-                ctx.getTopologyLayers(), null, ctx.getStartedAt(), Instant.now(), Optional.of(report));
+                ctx.getTopologyLayers(), failureReason, ctx.getStartedAt(), Instant.now(), Optional.of(report));
     }
 
     /**

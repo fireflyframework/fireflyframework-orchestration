@@ -158,34 +158,52 @@ public class TccEngine {
             }
         }
 
+        // Only DLQ truly failed transactions — CANCELED is controlled rollback, not a failure
+        Mono<Void> dlq = (finalStatus == ExecutionStatus.FAILED) ? saveToDlq(tcc.name, ctx, result, finalStatus, inputMap) : Mono.empty();
+
+        Mono<Void> errorCallbacks = Mono.empty();
+        if (finalStatus == ExecutionStatus.FAILED) {
+            errorCallbacks = invokeTccErrorCallbacks(tcc, ctx, result.getFailureError());
+        }
+
+        // For FAILED status, defer persist/publish until after suppress check
+        if (finalStatus == ExecutionStatus.FAILED) {
+            final TccResult failedTccResult = tccResult;
+            return dlq.then(errorCallbacks)
+                    .then(Mono.defer(() -> {
+                        if (result.getFailureError() != null && shouldSuppressError(tcc, result.getFailureError())) {
+                            TccResult suppressed = TccResult.confirmed(tcc.name, ctx, result.getParticipantOutcomes());
+                            ExecutionReport suppressedReport = ExecutionReportBuilder.fromContext(ctx, ExecutionStatus.CONFIRMED, null);
+                            return persistFinalState(ctx, ExecutionStatus.CONFIRMED)
+                                    .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                            tcc.name, ctx.getCorrelationId(), ExecutionPattern.TCC, ExecutionStatus.CONFIRMED)))
+                                    .thenReturn(suppressed.withReport(suppressedReport));
+                        }
+                        String failureReason = result.getFailureError() != null ? result.getFailureError().getMessage() : null;
+                        ExecutionReport failedReport = ExecutionReportBuilder.fromContext(ctx, ExecutionStatus.FAILED, failureReason);
+                        return persistFinalState(ctx, ExecutionStatus.FAILED)
+                                .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                        tcc.name, ctx.getCorrelationId(), ExecutionPattern.TCC, ExecutionStatus.FAILED)))
+                                .thenReturn(failedTccResult.withReport(failedReport));
+                    }));
+        }
+
+        // Non-FAILED status (CONFIRMED or CANCELED): persist and publish immediately
         String failureReason = result.getFailureError() != null ? result.getFailureError().getMessage() : null;
         ExecutionReport report = ExecutionReportBuilder.fromContext(ctx, finalStatus, failureReason);
         tccResult = tccResult.withReport(report);
 
-        Mono<Void> persist = persistFinalState(ctx, finalStatus);
-        // Only DLQ truly failed transactions — CANCELED is controlled rollback, not a failure
-        Mono<Void> dlq = (finalStatus == ExecutionStatus.FAILED) ? saveToDlq(tcc.name, ctx, result, finalStatus, inputMap) : Mono.empty();
-        Mono<Void> publishCompleted = eventPublisher.publish(OrchestrationEvent.executionCompleted(
-                tcc.name, ctx.getCorrelationId(), ExecutionPattern.TCC, finalStatus));
-
         Mono<Void> callbacks = Mono.empty();
         if (finalStatus == ExecutionStatus.CONFIRMED) {
             callbacks = invokeTccCompleteCallbacks(tcc, ctx, tccResult);
-        } else if (finalStatus == ExecutionStatus.FAILED) {
-            callbacks = invokeTccErrorCallbacks(tcc, ctx, result.getFailureError());
         }
 
         final TccResult finalTccResult = tccResult;
-        return persist.then(dlq).then(publishCompleted).then(callbacks)
-                .then(Mono.defer(() -> {
-                    if (finalStatus == ExecutionStatus.FAILED && result.getFailureError() != null
-                            && shouldSuppressError(tcc, result.getFailureError())) {
-                        TccResult suppressed = TccResult.confirmed(tcc.name, ctx, result.getParticipantOutcomes());
-                        ExecutionReport suppressedReport = ExecutionReportBuilder.fromContext(ctx, ExecutionStatus.CONFIRMED, null);
-                        return Mono.just(suppressed.withReport(suppressedReport));
-                    }
-                    return Mono.just(finalTccResult);
-                }));
+        return persistFinalState(ctx, finalStatus)
+                .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                        tcc.name, ctx.getCorrelationId(), ExecutionPattern.TCC, finalStatus)))
+                .then(callbacks)
+                .thenReturn(finalTccResult);
     }
 
     private Mono<Void> saveToDlq(String tccName, ExecutionContext ctx,

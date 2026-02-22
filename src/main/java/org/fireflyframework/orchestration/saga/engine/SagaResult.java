@@ -65,6 +65,7 @@ public final class SagaResult {
     public Instant completedAt() { return completedAt; }
     public Duration duration() { return Duration.between(startedAt, completedAt); }
     public boolean isSuccess() { return success; }
+    public boolean isFailed() { return !success; }
     public Optional<Throwable> error() { return Optional.ofNullable(error); }
     public Map<String, String> headers() { return headers; }
     public Map<String, StepOutcome> steps() { return steps; }
@@ -109,7 +110,15 @@ public final class SagaResult {
     public static SagaResult failed(String sagaName, String correlationId,
                                       String failedStepId, Throwable error,
                                       Map<String, StepOutcome> steps) {
-        return new SagaResult(sagaName, correlationId, Instant.now(), Instant.now(),
+        Instant now = Instant.now();
+        return new SagaResult(sagaName, correlationId, now, now,
+                false, error, Map.of(), steps != null ? Map.copyOf(steps) : Map.of(), null);
+    }
+
+    public static SagaResult failed(String sagaName, String correlationId,
+                                      Instant startedAt, String failedStepId, Throwable error,
+                                      Map<String, StepOutcome> steps) {
+        return new SagaResult(sagaName, correlationId, startedAt, Instant.now(),
                 false, error, Map.of(), steps != null ? Map.copyOf(steps) : Map.of(), null);
     }
 

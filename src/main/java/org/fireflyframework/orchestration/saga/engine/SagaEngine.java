@@ -151,13 +151,10 @@ public class SagaEngine {
                     .thenReturn(sagaResult);
         }
 
-        // Failure path: compensate, then DLQ
+        // Failure path: compensate, then DLQ, then decide suppress vs. fail
         Map<String, Object> materializedInputs = materializeInputs(inputs, overrideInputs, ctx);
         return compensator.compensate(sagaName, workSaga, result.getCompletionOrder(), materializedInputs, ctx)
-                .then(persistFinalState(ctx, ExecutionStatus.FAILED))
                 .then(saveToDlq(sagaName, ctx, result, materializedInputs))
-                .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
-                        sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, ExecutionStatus.FAILED)))
                 .then(invokeSagaErrorCallbacks(workSaga, ctx, result.getStepErrors()))
                 .then(Mono.defer(() -> {
                     // Check if any error callback has suppressError=true that matches the error
@@ -169,14 +166,17 @@ public class SagaEngine {
                         return persistFinalState(ctx, ExecutionStatus.COMPLETED)
                                 .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                                         sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, ExecutionStatus.COMPLETED)))
-                                .then(Mono.just(suppressed));
+                                .thenReturn(suppressed);
                     }
                     Map<String, Boolean> compensated = extractCompensationFlags(result.getCompletionOrder(), ctx);
                     String failureReason = error != null ? error.getMessage() : null;
                     SagaResult failedResult = SagaResult.from(sagaName, ctx, compensated, result.getStepErrors(), workSaga.steps.keySet());
                     ExecutionReport failedReport = ExecutionReportBuilder.fromContext(ctx, ExecutionStatus.FAILED, failureReason);
                     failedResult = failedResult.withReport(failedReport);
-                    return Mono.just(failedResult);
+                    return persistFinalState(ctx, ExecutionStatus.FAILED)
+                            .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                    sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, ExecutionStatus.FAILED)))
+                            .thenReturn(failedResult);
                 }));
     }
 

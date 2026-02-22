@@ -74,6 +74,7 @@ public final class TccResult {
     public Instant startedAt() { return startedAt; }
     public Instant completedAt() { return completedAt; }
     public Duration duration() { return Duration.between(startedAt, completedAt); }
+    public boolean isSuccess() { return status == Status.CONFIRMED; }
     public boolean isConfirmed() { return status == Status.CONFIRMED; }
     public boolean isCanceled() { return status == Status.CANCELED; }
     public boolean isFailed() { return status == Status.FAILED; }
