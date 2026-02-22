@@ -9,6 +9,7 @@
 - [§22 TCC Builder DSL](#22-tcc-builder-dsl)
 - [§23 TccEngine API](#23-tccengine-api)
 - [§24 TccResult](#24-tccresult)
+- [§25 TCC Composition](#25-tcc-composition)
 
 ## 19. TCC Annotation Reference
 
@@ -562,6 +563,66 @@ TccInputs inputs = TccInputs.empty();
 | `failedPhase()` | `Optional<TccPhase>` | Phase that failed (`TRY`, `CONFIRM`, or `CANCEL`) |
 | `participants()` | `Map<String, ParticipantOutcome>` | All participant outcomes |
 | `tryResultOf(String participantId, Class<T> type)` | `Optional<T>` | Type-safe Try-phase result extraction |
+| `report()` | `Optional<ExecutionReport>` | Execution report with per-step details (populated by engine) |
+| `withReport(ExecutionReport)` | `TccResult` | Returns new TccResult with report attached |
+
+### ExecutionReport
+
+`TccResult` can carry an `ExecutionReport` — a unified report record shared across all three orchestration patterns (Workflow, Saga, TCC). The engine populates this report automatically after execution.
+
+**`ExecutionReport` record fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `executionName` | `String` | TCC name |
+| `correlationId` | `String` | Unique execution ID |
+| `pattern` | `ExecutionPattern` | Always `TCC` for TCC results |
+| `status` | `ExecutionStatus` | Overall execution status |
+| `startedAt` | `Instant` | Start time |
+| `completedAt` | `Instant` | Completion time |
+| `duration` | `Duration` | Wall-clock duration |
+| `stepReports` | `Map<String, StepReport>` | Per-participant step reports |
+| `executionOrder` | `List<String>` | Participants in execution order |
+| `variables` | `Map<String, Object>` | Execution variables snapshot |
+| `failureReason` | `String` | Human-readable failure reason |
+| `compensationReport` | `CompensationReport` | Compensation details (if Cancel was triggered) |
+
+**Computed methods on `ExecutionReport`:**
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `isSuccess()` | `boolean` | `true` if status is `COMPLETED` or `CONFIRMED` |
+| `stepCount()` | `int` | Total number of steps |
+| `failedStepCount()` | `int` | Count of steps with a failed status |
+| `completedStepCount()` | `int` | Count of steps that completed successfully |
+| `totalRetries()` | `int` | Sum of retry attempts across all steps |
+
+**`StepReport` record:** `stepId`, `status` (`StepStatus`), `attempts`, `latency` (`Duration`), `result`, `error`, `startedAt`, `completedAt`.
+
+**Example: Accessing the report from a TccResult**
+
+```java
+tccEngine.execute("TransferFunds", inputs)
+    .subscribe(result -> {
+        result.report().ifPresent(report -> {
+            log.info("Execution: {} steps, {} failed, {} retries, duration={}",
+                report.stepCount(),
+                report.failedStepCount(),
+                report.totalRetries(),
+                report.duration());
+
+            report.stepReports().forEach((stepId, step) ->
+                log.info("  {} → status={}, attempts={}, latency={}",
+                    stepId, step.status(), step.attempts(), step.latency()));
+
+            if (report.compensationReport() != null) {
+                log.info("Compensation: allCompensated={}, duration={}",
+                    report.compensationReport().allCompensated(),
+                    report.compensationReport().totalDuration());
+            }
+        });
+    });
+```
 
 ### ParticipantOutcome Record
 
@@ -621,6 +682,338 @@ tccEngine.execute("TransferFunds", inputs)
 | `TccResult.confirmed(tccName, ctx, participants)` | All phases succeeded |
 | `TccResult.canceled(tccName, ctx, failedId, failedPhase, error, participants)` | Try/Confirm failed, Cancel ran |
 | `TccResult.failed(tccName, ctx, failedId, failedPhase, error, participants)` | Cancel phase failed |
+
+---
+
+## 25. TCC Composition
+
+### Overview
+
+TCC Composition provides multi-TCC orchestration with DAG topology — parallel to the saga composition subsystem. Multiple independent TCC transactions can be composed into a single coordinated execution where:
+
+- TCCs within a composition can **depend on each other**, forming a directed acyclic graph
+- TCCs **share data via mappings** — output from one TCC flows as input to downstream TCCs
+- On failure, confirmed TCCs are **compensated (canceled) in reverse execution order**
+- TCCs in the same layer of the DAG execute **in parallel**
+
+### TccComposition
+
+`TccComposition` is the immutable definition of a composition — a DAG of TCC transactions with data flow between them.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `String` | Composition name |
+| `tccs` | `List<CompositionTcc>` | Ordered list of TCC entries |
+| `tccMap` | `Map<String, CompositionTcc>` | TCC entries keyed by alias (derived from `tccs`) |
+| `dataMappings` | `List<DataMapping>` | Data flow mappings between TCCs |
+
+**Key method:**
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `getExecutableLayers()` | `List<List<CompositionTcc>>` | Topologically sorted layers; delegates to `TopologyBuilder.buildLayers()` |
+
+TCCs within the same layer have no mutual dependencies and can execute in parallel. Layers execute sequentially, ensuring all upstream TCCs complete before downstream TCCs begin.
+
+#### CompositionTcc Record
+
+Each TCC entry in a composition is represented by a `CompositionTcc` record:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `alias` | `String` | Unique alias within the composition |
+| `tccName` | `String` | Name of the TCC transaction (as registered in `TccRegistry`) |
+| `dependsOn` | `List<String>` | Aliases of TCCs that must complete before this one |
+| `staticInput` | `Map<String, Object>` | Static input values merged into this TCC's input |
+| `optional` | `boolean` | If `true`, failure does not trigger compensation of other TCCs |
+| `condition` | `String` | Optional condition expression for conditional execution |
+
+#### DataMapping Record
+
+Data flows between TCCs are defined by `DataMapping` records:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `sourceTcc` | `String` | Alias of the upstream TCC |
+| `sourceField` | `String` | Field name extracted from the upstream TCC's Try results |
+| `targetTcc` | `String` | Alias of the downstream TCC |
+| `targetField` | `String` | Input field name injected into the downstream TCC |
+
+### TccCompositionBuilder
+
+`TccCompositionBuilder` provides a fluent API for constructing `TccComposition` instances with built-in validation.
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `TccCompositionBuilder.composition(String name)` | `TccCompositionBuilder` | Static factory — creates a new builder |
+| `.tcc(String alias)` | `TccEntryBuilder` | Begin defining a TCC entry |
+| `.dataFlow(String sourceTcc, String sourceField, String targetTcc, String targetField)` | `TccCompositionBuilder` | Add a data flow mapping |
+| `.build()` | `TccComposition` | Validate and build the immutable composition |
+
+**`TccEntryBuilder` methods:**
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `.tccName(String)` | `TccEntryBuilder` | TCC name (defaults to alias if not set) |
+| `.dependsOn(String...)` | `TccEntryBuilder` | Aliases this TCC depends on |
+| `.input(String key, Object value)` | `TccEntryBuilder` | Add a static input entry |
+| `.optional(boolean)` | `TccEntryBuilder` | Mark as optional |
+| `.condition(String)` | `TccEntryBuilder` | Set a condition expression |
+| `.add()` | `TccCompositionBuilder` | Finish this TCC entry and return to the composition builder |
+
+**Full example — multi-TCC composition:**
+
+```java
+TccComposition composition = TccCompositionBuilder.composition("OrderFulfillment")
+    .tcc("reserve-inventory")
+        .tccName("ReserveInventory")
+        .input("warehouse", "primary")
+        .add()
+    .tcc("reserve-payment")
+        .tccName("ReservePayment")
+        .add()
+    .tcc("apply-discount")
+        .tccName("ApplyDiscount")
+        .dependsOn("reserve-payment")
+        .optional(true)
+        .add()
+    .tcc("confirm-shipment")
+        .tccName("ConfirmShipment")
+        .dependsOn("reserve-inventory", "reserve-payment")
+        .add()
+    .tcc("send-notification")
+        .tccName("SendNotification")
+        .dependsOn("confirm-shipment", "apply-discount")
+        .optional(true)
+        .add()
+    .dataFlow("reserve-inventory", "reservationId",
+              "confirm-shipment", "inventoryReservationId")
+    .dataFlow("reserve-payment", "holdId",
+              "confirm-shipment", "paymentHoldId")
+    .dataFlow("reserve-payment", "amount",
+              "apply-discount", "originalAmount")
+    .build();
+```
+
+This produces a three-layer DAG:
+
+```
+Layer 0: [reserve-inventory, reserve-payment]   ← parallel
+Layer 1: [apply-discount]                        ← depends on reserve-payment
+Layer 2: [confirm-shipment, send-notification]   ← depends on upstream layers
+```
+
+### TccCompositor
+
+`TccCompositor` orchestrates the execution of a `TccComposition`. It delegates individual TCC execution to `TccEngine` and coordinates layer-by-layer processing with parallel execution within layers.
+
+**Dependencies:** `TccEngine`, `OrchestrationEvents`, `TccCompositionDataFlowManager`, `TccCompositionCompensationManager`, optional `BackpressureStrategy`.
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `compose(TccComposition composition, Map<String, Object> globalInput)` | `Mono<TccCompositionResult>` | Execute the full composition |
+
+**Execution behavior:**
+
+1. Generates a `correlationId` and creates a `TccCompositionContext`
+2. Computes executable layers via `composition.getExecutableLayers()`
+3. Executes layers sequentially; TCCs within each layer run **in parallel**
+4. For each TCC, resolves inputs via `TccCompositionDataFlowManager` (global input + static input + upstream results)
+5. Delegates to `TccEngine.execute(tccName, inputMap)` for each TCC
+6. Tracks results and statuses in `TccCompositionContext`
+7. If a non-optional TCC fails, halts execution and triggers compensation via `TccCompositionCompensationManager`
+8. Returns `TccCompositionResult.success(...)` or `TccCompositionResult.failure(...)`
+
+```java
+TccCompositor compositor = new TccCompositor(
+    tccEngine, events, dataFlowManager, compensationManager);
+
+compositor.compose(composition, Map.of("orderId", "ORD-123", "amount", 99.99))
+    .subscribe(result -> {
+        if (result.success()) {
+            log.info("Composition '{}' succeeded: {}",
+                result.compositionName(), result.correlationId());
+            result.tccResults().forEach((alias, tccResult) ->
+                log.info("  {} → {}", alias, tccResult.status()));
+        } else {
+            log.error("Composition '{}' failed: {}",
+                result.compositionName(),
+                result.error().getMessage());
+        }
+    });
+```
+
+### TccCompositionResult
+
+`TccCompositionResult` is the outcome record of a TCC composition execution.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `compositionName` | `String` | Composition name |
+| `correlationId` | `String` | Unique execution ID |
+| `success` | `boolean` | Whether all non-optional TCCs confirmed |
+| `tccResults` | `Map<String, TccResult>` | Per-alias TCC results |
+| `error` | `Throwable` | Root cause error (`null` on success) |
+
+**Static factories:**
+
+| Method | Description |
+|--------|-------------|
+| `TccCompositionResult.success(String name, String correlationId, Map<String, TccResult> results)` | All TCCs confirmed |
+| `TccCompositionResult.failure(String name, String correlationId, Map<String, TccResult> results, Throwable error)` | Composition failed |
+
+### TccCompositionContext
+
+`TccCompositionContext` is the mutable execution context that tracks progress during composition execution. It is thread-safe (uses `ConcurrentHashMap` and synchronized lists).
+
+**TccStatus Enum:**
+
+| Value | Meaning |
+|-------|---------|
+| `PENDING` | TCC has not started |
+| `RUNNING` | TCC is currently executing |
+| `CONFIRMED` | TCC completed successfully |
+| `CANCELED` | TCC was compensated |
+| `FAILED` | TCC execution failed |
+| `SKIPPED` | TCC was skipped (condition not met) |
+
+**Tracked state:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `compositionCorrelationId` | `String` | Composition-level correlation ID |
+| `startTime` | `Instant` | Composition start time |
+| `tccCorrelationIds` | `Map<String, String>` | Per-alias TCC correlation IDs |
+| `tccResults` | `Map<String, TccResult>` | Per-alias TCC results |
+| `tccStatuses` | `Map<String, TccStatus>` | Per-alias TCC statuses |
+| `executionOrder` | `List<String>` | Aliases in the order they were executed |
+
+**Key methods:**
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `setTccResult(String alias, TccResult result)` | `void` | Store a TCC result |
+| `getTccResult(String alias)` | `TccResult` | Retrieve a TCC result by alias |
+| `setTccStatus(String alias, TccStatus status)` | `void` | Update TCC status |
+| `getTccStatus(String alias)` | `TccStatus` | Get TCC status (defaults to `PENDING`) |
+| `getConfirmedAliasesInOrder()` | `List<String>` | Confirmed aliases in execution order (used for reverse compensation) |
+| `getExecutionOrder()` | `List<String>` | All aliases in execution order |
+| `getTccResults()` | `Map<String, TccResult>` | Unmodifiable view of all TCC results |
+| `getTccStatuses()` | `Map<String, TccStatus>` | Unmodifiable view of all statuses |
+
+### TccCompositionCompensationManager
+
+`TccCompositionCompensationManager` handles reverse-order compensation when a composition fails. It uses `CompensationPolicy` to determine the compensation strategy.
+
+**Dependencies:** `TccEngine`, `CompensationPolicy`.
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `compensate(TccComposition composition, TccCompositionContext context)` | `Mono<Void>` | Cancel all confirmed TCCs in reverse execution order |
+
+**Compensation strategies based on `CompensationPolicy`:**
+
+| Policy | Behavior |
+|--------|----------|
+| `BEST_EFFORT_PARALLEL` | Compensate all confirmed TCCs in parallel |
+| `GROUPED_PARALLEL` | Compensate all confirmed TCCs in parallel |
+| `STRICT_SEQUENTIAL` (default) | Compensate one at a time in reverse execution order |
+| `RETRY_WITH_BACKOFF` | Sequential compensation with retry and backoff |
+| `CIRCUIT_BREAKER` | Sequential compensation with circuit breaker protection |
+
+The manager retrieves confirmed aliases from `context.getConfirmedAliasesInOrder()`, reverses the list, and compensates each TCC according to the selected policy.
+
+### TccCompositionDataFlowManager
+
+`TccCompositionDataFlowManager` resolves `DataMapping` entries to build input maps for each TCC in the composition.
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `resolveInputs(TccComposition composition, CompositionTcc tcc, Map<String, Object> globalInput, TccCompositionContext context)` | `Map<String, Object>` | Build merged input map |
+
+**Input resolution order (later entries override earlier):**
+
+1. **Global input** — the `Map<String, Object>` passed to `compose()`
+2. **Static input** — the `staticInput` map from the `CompositionTcc` entry
+3. **Data flow mappings** — values extracted from upstream TCC Try results via `DataMapping`
+
+For data flow extraction, the manager searches participant outcomes in the upstream `TccResult`: first checking if any participant's `tryResult` is a `Map` containing the `sourceField` key, then falling back to matching the `sourceField` against a participant ID's `tryResult` directly.
+
+### TccCompositionValidator
+
+`TccCompositionValidator` checks a `TccComposition` for structural correctness before execution.
+
+**Dependencies:** `TccRegistry` (for verifying TCC names exist).
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `validate(TccComposition composition)` | `List<String>` | Returns a list of error messages (empty if valid) |
+| `validateAndThrow(TccComposition composition)` | `void` | Throws `IllegalStateException` if validation fails |
+
+**Validation checks:**
+
+| Check | Error Condition |
+|-------|-----------------|
+| Empty composition | No TCCs defined |
+| Duplicate aliases | Two TCCs share the same alias |
+| Missing dependencies | A `dependsOn` alias does not exist in the composition |
+| Missing TCC names | A `tccName` is not registered in `TccRegistry` |
+| Circular dependencies | The DAG contains a cycle (detected via `getExecutableLayers()`) |
+| Invalid data mappings | A `sourceTcc` or `targetTcc` in a `DataMapping` is not a known alias |
+
+```java
+TccCompositionValidator validator = new TccCompositionValidator(tccRegistry);
+
+// Lenient — inspect errors
+List<String> errors = validator.validate(composition);
+if (!errors.isEmpty()) {
+    errors.forEach(e -> log.warn("Validation: {}", e));
+}
+
+// Strict — fail fast
+validator.validateAndThrow(composition);
+```
+
+### TccCompositionVisualizationService
+
+`TccCompositionVisualizationService` generates graph representations of a TCC composition DAG for debugging and documentation.
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `toDot(TccComposition composition)` | `String` | Graphviz DOT format |
+| `toMermaid(TccComposition composition)` | `String` | Mermaid diagram format |
+
+Both methods render:
+- TCC nodes with alias and TCC name labels
+- Dependency edges (solid arrows)
+- Data flow edges (dashed arrows with field labels)
+- Optional TCCs shown with dashed borders
+
+```java
+TccCompositionVisualizationService viz = new TccCompositionVisualizationService();
+
+// Graphviz DOT
+String dot = viz.toDot(composition);
+// digraph "OrderFulfillment" {
+//   rankdir=TB;
+//   "reserve-inventory" [label="reserve-inventory\n(ReserveInventory)"];
+//   "reserve-payment" [label="reserve-payment\n(ReservePayment)"];
+//   "confirm-shipment" [label="confirm-shipment\n(ConfirmShipment)"];
+//   "reserve-inventory" -> "confirm-shipment";
+//   "reserve-payment" -> "confirm-shipment";
+//   ...
+// }
+
+// Mermaid
+String mermaid = viz.toMermaid(composition);
+// graph TD
+//   reserve_inventory["reserve-inventory<br/>ReserveInventory"]
+//   reserve_payment["reserve-payment<br/>ReservePayment"]
+//   confirm_shipment["confirm-shipment<br/>ConfirmShipment"]
+//   reserve_inventory --> confirm_shipment
+//   reserve_payment --> confirm_shipment
+//   ...
+```
 
 ---
 
