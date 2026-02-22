@@ -129,7 +129,26 @@ public class SagaEngine {
                         workSaga.name, finalCtx.getCorrelationId(), ExecutionPattern.SAGA)))
                 .then(Mono.fromRunnable(() -> events.onStart(workSaga.name, finalCtx.getCorrelationId(), ExecutionPattern.SAGA)))
                 .then(execution)
-                .flatMap(result -> handleResult(result, workSaga, inputs, overrideInputs));
+                .flatMap(result -> handleResult(result, workSaga, inputs, overrideInputs))
+                .onErrorResume(err -> {
+                    log.error("[saga] Unexpected error executing saga '{}': {}", workSaga.name, err.getMessage(), err);
+                    long durationMs = Duration.between(finalCtx.getStartedAt(), Instant.now()).toMillis();
+                    events.onCompleted(workSaga.name, finalCtx.getCorrelationId(), ExecutionPattern.SAGA, false, durationMs);
+                    return invokeSagaErrorCallbacks(workSaga, finalCtx, Map.of("unknown", err))
+                            .then(Mono.defer(() -> {
+                                String failureReason = err.getMessage();
+                                ExecutionReport failedReport = ExecutionReportBuilder.fromContext(
+                                        finalCtx, ExecutionStatus.FAILED, failureReason);
+                                SagaResult failedResult = SagaResult.failed(workSaga.name,
+                                        finalCtx.getCorrelationId(), finalCtx.getStartedAt(),
+                                        "unknown", err, Map.of());
+                                return persistFinalState(finalCtx, ExecutionStatus.FAILED, failureReason, failedReport)
+                                        .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                                workSaga.name, finalCtx.getCorrelationId(),
+                                                ExecutionPattern.SAGA, ExecutionStatus.FAILED)))
+                                        .thenReturn(failedResult.withReport(failedReport));
+                            }));
+                });
     }
 
     private Mono<SagaResult> handleResult(SagaExecutionOrchestrator.ExecutionResult result,
@@ -145,7 +164,7 @@ public class SagaEngine {
             SagaResult sagaResult = SagaResult.from(sagaName, ctx, Map.of(), result.getStepErrors(), workSaga.steps.keySet());
             ExecutionReport report = ExecutionReportBuilder.fromContext(ctx, ExecutionStatus.COMPLETED, null);
             sagaResult = sagaResult.withReport(report);
-            return persistFinalState(ctx, ExecutionStatus.COMPLETED, null)
+            return persistFinalState(ctx, ExecutionStatus.COMPLETED, null, report)
                     .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                             sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, ExecutionStatus.COMPLETED)))
                     .then(invokeSagaCompleteCallbacks(workSaga, ctx, sagaResult))
@@ -164,7 +183,7 @@ public class SagaEngine {
                         SagaResult suppressed = SagaResult.from(sagaName, ctx, Map.of(), Map.of(), workSaga.steps.keySet());
                         ExecutionReport suppressedReport = ExecutionReportBuilder.fromContext(ctx, ExecutionStatus.COMPLETED, null);
                         suppressed = suppressed.withReport(suppressedReport);
-                        return persistFinalState(ctx, ExecutionStatus.COMPLETED, null)
+                        return persistFinalState(ctx, ExecutionStatus.COMPLETED, null, suppressedReport)
                                 .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                                         sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, ExecutionStatus.COMPLETED)))
                                 .thenReturn(suppressed);
@@ -174,7 +193,7 @@ public class SagaEngine {
                     SagaResult failedResult = SagaResult.from(sagaName, ctx, compensated, result.getStepErrors(), workSaga.steps.keySet());
                     ExecutionReport failedReport = ExecutionReportBuilder.fromContext(ctx, ExecutionStatus.FAILED, failureReason);
                     failedResult = failedResult.withReport(failedReport);
-                    return persistFinalState(ctx, ExecutionStatus.FAILED, failureReason)
+                    return persistFinalState(ctx, ExecutionStatus.FAILED, failureReason, failedReport)
                             .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                                     sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, ExecutionStatus.FAILED)))
                             .thenReturn(failedResult);
@@ -216,7 +235,8 @@ public class SagaEngine {
                 });
     }
 
-    private Mono<Void> persistFinalState(ExecutionContext ctx, ExecutionStatus status, String failureReason) {
+    private Mono<Void> persistFinalState(ExecutionContext ctx, ExecutionStatus status,
+                                          String failureReason, ExecutionReport report) {
         if (persistence == null) return Mono.empty();
         ExecutionState state = new ExecutionState(
                 ctx.getCorrelationId(), ctx.getExecutionName(), ExecutionPattern.SAGA, status,
@@ -225,7 +245,7 @@ public class SagaEngine {
                 new HashMap<>(ctx.getVariables()),
                 new HashMap<>(ctx.getHeaders()), Set.copyOf(ctx.getIdempotencyKeys()),
                 ctx.getTopologyLayers(), failureReason, ctx.getStartedAt(), Instant.now(),
-                Optional.empty());
+                Optional.ofNullable(report));
         return persistence.save(state)
                 .onErrorResume(err -> {
                     log.warn("[orchestration] Failed to persist final saga state: {}", ctx.getCorrelationId(), err);

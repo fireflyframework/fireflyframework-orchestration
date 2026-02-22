@@ -109,8 +109,8 @@ class CompensationErrorHandlerWiringTest {
     }
 
     /**
-     * Handler returns FAIL_SAGA. Compensation error propagates through the engine as
-     * a reactive error signal, preventing the normal SagaResult from being constructed.
+     * Handler returns FAIL_SAGA. The engine's top-level safety net catches the compensation
+     * error and wraps it in a failed SagaResult with the compensation error attached.
      */
     @Test
     void compensator_failsSaga_whenHandlerReturnsFail() {
@@ -138,12 +138,16 @@ class CompensationErrorHandlerWiringTest {
 
         SagaEngine engine = createEngine(CompensationPolicy.STRICT_SEQUENTIAL, handler);
 
-        // When FAIL_SAGA is returned, the compensation error propagates through the
-        // engine's reactive chain as an error signal (no SagaResult is produced).
+        // The top-level onErrorResume catches the compensation error and wraps it
+        // in a failed SagaResult — the engine never propagates raw errors to callers.
         StepVerifier.create(engine.execute(saga, StepInputs.empty()))
-                .expectErrorMatches(err -> err instanceof RuntimeException
-                        && err.getMessage().equals("compensation exploded"))
-                .verify();
+                .assertNext(result -> {
+                    assertThat(result.isFailed()).isTrue();
+                    assertThat(result.error()).isPresent();
+                    assertThat(result.error().get()).isInstanceOf(RuntimeException.class);
+                    assertThat(result.error().get().getMessage()).isEqualTo("compensation exploded");
+                })
+                .verifyComplete();
     }
 
     /**

@@ -119,16 +119,18 @@ public class TccEngine {
                 .flatMap(result -> handleResult(result, tcc, inputMap))
                 .onErrorResume(err -> {
                     log.error("[tcc] Unexpected error executing TCC '{}': {}", tcc.name, err.getMessage(), err);
+                    long durationMs = Duration.between(finalCtx.getStartedAt(), Instant.now()).toMillis();
+                    events.onCompleted(tcc.name, finalCtx.getCorrelationId(), ExecutionPattern.TCC, false, durationMs);
                     return invokeTccErrorCallbacks(tcc, finalCtx, err)
-                            .then(persistFinalState(finalCtx, ExecutionStatus.FAILED, err.getMessage()))
-                            .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
-                                    tcc.name, finalCtx.getCorrelationId(), ExecutionPattern.TCC, ExecutionStatus.FAILED)))
                             .then(Mono.defer(() -> {
-                                TccResult failedResult = TccResult.failed(tcc.name, finalCtx,
-                                        null, null, err, Map.of());
                                 ExecutionReport failedReport = ExecutionReportBuilder.fromContext(
                                         finalCtx, ExecutionStatus.FAILED, err.getMessage());
-                                return Mono.just(failedResult.withReport(failedReport));
+                                TccResult failedResult = TccResult.failed(tcc.name, finalCtx,
+                                        null, null, err, Map.of());
+                                return persistFinalState(finalCtx, ExecutionStatus.FAILED, err.getMessage(), failedReport)
+                                        .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                                tcc.name, finalCtx.getCorrelationId(), ExecutionPattern.TCC, ExecutionStatus.FAILED)))
+                                        .thenReturn(failedResult.withReport(failedReport));
                             }));
                 });
     }
@@ -176,14 +178,14 @@ public class TccEngine {
                         if (result.getFailureError() != null && shouldSuppressError(tcc, result.getFailureError())) {
                             TccResult suppressed = TccResult.confirmed(tcc.name, ctx, result.getParticipantOutcomes());
                             ExecutionReport suppressedReport = ExecutionReportBuilder.fromContext(ctx, ExecutionStatus.CONFIRMED, null);
-                            return persistFinalState(ctx, ExecutionStatus.CONFIRMED, null)
+                            return persistFinalState(ctx, ExecutionStatus.CONFIRMED, null, suppressedReport)
                                     .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                                             tcc.name, ctx.getCorrelationId(), ExecutionPattern.TCC, ExecutionStatus.CONFIRMED)))
                                     .thenReturn(suppressed.withReport(suppressedReport));
                         }
                         String failureReason = result.getFailureError() != null ? result.getFailureError().getMessage() : null;
                         ExecutionReport failedReport = ExecutionReportBuilder.fromContext(ctx, ExecutionStatus.FAILED, failureReason);
-                        return persistFinalState(ctx, ExecutionStatus.FAILED, failureReason)
+                        return persistFinalState(ctx, ExecutionStatus.FAILED, failureReason, failedReport)
                                 .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                                         tcc.name, ctx.getCorrelationId(), ExecutionPattern.TCC, ExecutionStatus.FAILED)))
                                 .thenReturn(failedTccResult.withReport(failedReport));
@@ -201,7 +203,7 @@ public class TccEngine {
         }
 
         final TccResult finalTccResult = tccResult;
-        return persistFinalState(ctx, finalStatus, failureReason)
+        return persistFinalState(ctx, finalStatus, failureReason, report)
                 .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                         tcc.name, ctx.getCorrelationId(), ExecutionPattern.TCC, finalStatus)))
                 .then(callbacks)
@@ -237,7 +239,8 @@ public class TccEngine {
                 });
     }
 
-    private Mono<Void> persistFinalState(ExecutionContext ctx, ExecutionStatus status, String failureReason) {
+    private Mono<Void> persistFinalState(ExecutionContext ctx, ExecutionStatus status,
+                                          String failureReason, ExecutionReport report) {
         if (persistence == null) return Mono.empty();
         ExecutionState state = new ExecutionState(
                 ctx.getCorrelationId(), ctx.getExecutionName(), ExecutionPattern.TCC, status,
@@ -246,7 +249,7 @@ public class TccEngine {
                 new HashMap<>(ctx.getVariables()),
                 new HashMap<>(ctx.getHeaders()), Set.copyOf(ctx.getIdempotencyKeys()),
                 ctx.getTopologyLayers(), failureReason, ctx.getStartedAt(), Instant.now(),
-                Optional.empty());
+                Optional.ofNullable(report));
         return persistence.save(state)
                 .onErrorResume(err -> {
                     log.warn("[tcc] Failed to persist final state: {}", ctx.getCorrelationId(), err);

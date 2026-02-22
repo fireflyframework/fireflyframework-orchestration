@@ -112,9 +112,8 @@ public class WorkflowEngine {
                 return persistence.save(initialState)
                         .then(eventPublisher.publish(OrchestrationEvent.executionStarted(
                                 workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW)))
+                        .then(Mono.fromRunnable(() -> events.onStart(workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW)))
                         .then(Mono.defer(() -> {
-                            // Fire onStart after persist+publish, aligned with Saga/TCC
-                            events.onStart(workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW);
                             // Execute the full workflow pipeline in the background
                             tracedExecute(def, ctx)
                                     .flatMap(resultCtx -> {
