@@ -26,6 +26,9 @@ import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.saga.compensation.CompensationErrorHandler;
 import org.fireflyframework.orchestration.saga.compensation.DefaultCompensationErrorHandler;
 import org.fireflyframework.orchestration.saga.compensation.SagaCompensator;
+import org.fireflyframework.orchestration.saga.composition.CompositionTemplateRegistry;
+import org.fireflyframework.orchestration.saga.composition.CompositionValidator;
+import org.fireflyframework.orchestration.saga.composition.CompositionVisualizationService;
 import org.fireflyframework.orchestration.saga.engine.SagaEngine;
 import org.fireflyframework.orchestration.saga.engine.SagaExecutionOrchestrator;
 import org.fireflyframework.orchestration.saga.registry.SagaRegistry;
@@ -95,5 +98,26 @@ public class SagaAutoConfiguration {
         return new SagaEngine(registry, events, orchestrator,
                 persistence, dlqService.getIfAvailable(), compensator, eventPublisher,
                 tracer.getIfAvailable());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CompositionValidator compositionValidator(SagaRegistry sagaRegistry) {
+        log.info("[orchestration] Saga composition validator initialized");
+        return new CompositionValidator(sagaRegistry);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CompositionVisualizationService compositionVisualizationService() {
+        log.info("[orchestration] Saga composition visualization service initialized");
+        return new CompositionVisualizationService();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CompositionTemplateRegistry compositionTemplateRegistry() {
+        log.info("[orchestration] Saga composition template registry initialized");
+        return new CompositionTemplateRegistry();
     }
 }

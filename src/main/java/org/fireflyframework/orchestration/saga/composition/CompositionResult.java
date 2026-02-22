@@ -39,4 +39,27 @@ public record CompositionResult(
                                               Map<String, SagaResult> results, Throwable error) {
         return new CompositionResult(name, correlationId, false, results, error);
     }
+
+    /**
+     * Retrieves the result for a specific saga alias.
+     *
+     * @param alias the saga alias
+     * @return the saga result, or null if not found
+     */
+    public SagaResult getResult(String alias) {
+        return sagaResults != null ? sagaResults.get(alias) : null;
+    }
+
+    /**
+     * Returns true if the composition is a partial success: at least one saga succeeded
+     * and at least one saga failed, but the overall composition did not fully succeed.
+     */
+    public boolean isPartialSuccess() {
+        if (success || sagaResults == null || sagaResults.isEmpty()) {
+            return false;
+        }
+        boolean hasSuccess = sagaResults.values().stream().anyMatch(SagaResult::isSuccess);
+        boolean hasFailure = sagaResults.values().stream().anyMatch(r -> !r.isSuccess());
+        return hasSuccess && hasFailure;
+    }
 }
