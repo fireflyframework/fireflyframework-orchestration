@@ -127,6 +127,7 @@ public class SagaEngine {
         return persistSetup
                 .then(eventPublisher.publish(OrchestrationEvent.executionStarted(
                         workSaga.name, finalCtx.getCorrelationId(), ExecutionPattern.SAGA)))
+                .then(Mono.fromRunnable(() -> events.onStart(workSaga.name, finalCtx.getCorrelationId(), ExecutionPattern.SAGA)))
                 .then(execution)
                 .flatMap(result -> handleResult(result, workSaga, inputs, overrideInputs));
     }
@@ -187,6 +188,7 @@ public class SagaEngine {
         if (result.getStepErrors().isEmpty()) return Mono.empty();
 
         return Flux.fromIterable(result.getStepErrors().entrySet())
+                .filter(entry -> entry.getValue() != null)
                 .flatMap(entry -> {
                     DeadLetterEntry dlqEntry = DeadLetterEntry.create(
                             sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, entry.getKey(),

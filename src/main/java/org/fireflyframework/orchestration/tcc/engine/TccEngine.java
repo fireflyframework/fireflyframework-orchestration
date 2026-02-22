@@ -114,11 +114,13 @@ public class TccEngine {
         return persistInitialState(tcc, finalCtx)
                 .then(eventPublisher.publish(OrchestrationEvent.executionStarted(
                         tcc.name, finalCtx.getCorrelationId(), ExecutionPattern.TCC)))
+                .then(Mono.fromRunnable(() -> events.onStart(tcc.name, finalCtx.getCorrelationId(), ExecutionPattern.TCC)))
                 .then(execution)
                 .flatMap(result -> handleResult(result, tcc, inputMap))
                 .onErrorResume(err -> {
                     log.error("[tcc] Unexpected error executing TCC '{}': {}", tcc.name, err.getMessage(), err);
-                    return persistFinalState(finalCtx, ExecutionStatus.FAILED)
+                    return invokeTccErrorCallbacks(tcc, finalCtx, err)
+                            .then(persistFinalState(finalCtx, ExecutionStatus.FAILED))
                             .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                                     tcc.name, finalCtx.getCorrelationId(), ExecutionPattern.TCC, ExecutionStatus.FAILED)))
                             .then(Mono.defer(() -> {
