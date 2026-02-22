@@ -14,7 +14,7 @@
 - [§49 Recipe: Validation & Reporting](#49-recipe-validation--reporting)
 - [§50 Recipe: Event Sourcing](#50-recipe-event-sourcing)
 
-## 41. Recipe: Composing Patterns
+## 49. Recipe: Composing Patterns
 
 You can compose patterns by chaining them — a saga step can trigger a TCC, a workflow step can start a saga, or you can share context across multiple executions.
 
@@ -83,7 +83,7 @@ When `OrderSaga.validate` completes, it publishes `PaymentRequested`, which auto
 Use `SagaCompositionBuilder` to compose multiple sagas into a single execution graph with automatic dependency resolution, parallel execution, and data flow:
 
 ```java
-SagaComposition composition = SagaCompositionBuilder.create("order-fulfillment")
+SagaComposition composition = SagaCompositionBuilder.composition("order-fulfillment")
         .saga("validate")
             .sagaName("OrderValidationSaga")
             .add()
@@ -123,7 +123,7 @@ Key classes:
 Use `TccCompositionBuilder` to compose multiple TCC transactions into a layered execution graph:
 
 ```java
-TccComposition composition = TccCompositionBuilder.create("distributed-payment")
+TccComposition composition = TccCompositionBuilder.composition("distributed-payment")
         .tcc("reserve-inventory")
             .tccName("InventoryReserveTcc")
             .add()
@@ -134,8 +134,8 @@ TccComposition composition = TccCompositionBuilder.create("distributed-payment")
             .tccName("LedgerUpdateTcc")
             .dependsOn("reserve-inventory", "charge-payment")
             .add()
-        .dataMapping("reserve-inventory", "reservationId", "update-ledger", "reservationRef")
-        .dataMapping("charge-payment", "transactionId", "update-ledger", "paymentRef")
+        .dataFlow("reserve-inventory", "reservationId", "update-ledger", "reservationRef")
+        .dataFlow("charge-payment", "transactionId", "update-ledger", "paymentRef")
         .build();
 ```
 
@@ -165,18 +165,19 @@ public class MyCompositionTemplates {
 
     @PostConstruct
     void registerTemplates() {
-        templateRegistry.register("order-fulfillment", composition);
+        templateRegistry.register(new CompositionTemplate("order-fulfillment", composition, "Standard order flow"));
     }
 }
 // Later: retrieve and execute
-SagaComposition composition = templateRegistry.get("order-fulfillment");
+CompositionTemplate template = templateRegistry.get("order-fulfillment");
+SagaComposition composition = template.composition();
 ```
 
 This is useful for compositions that are defined once and executed many times with different inputs, such as standard business processes that are shared across services.
 
 ---
 
-## 42. Recipe: Testing Orchestrations
+## 50. Recipe: Testing Orchestrations
 
 ### Unit Testing Steps
 
@@ -319,7 +320,7 @@ void workflow_dryRun_skipsAllSteps() {
 
 ---
 
-## 43. Recipe: Error Handling
+## 51. Recipe: Error Handling
 
 ### Step-Level: Retry + Timeout
 
@@ -409,12 +410,12 @@ firefly:
 Or resolve programmatically:
 
 ```java
-CompensationErrorHandler handler = CompensationErrorHandlerFactory.getHandler("robust");
+CompensationErrorHandler handler = CompensationErrorHandlerFactory.getHandler("robust").orElseThrow();
 ```
 
 ---
 
-## 44. Recipe: Event-Driven Architecture
+## 52. Recipe: Event-Driven Architecture
 
 ### Event-Driven Triggering
 
@@ -475,7 +476,7 @@ External Event → EventGateway → SagaEngine.execute()
 
 ---
 
-## 45. Production Checklist
+## 53. Production Checklist
 
 ### Persistence
 
@@ -529,7 +530,7 @@ External Event → EventGateway → SagaEngine.execute()
 
 ---
 
-## 46. Resilience Patterns
+## 54. Resilience Patterns
 
 ### Resilience4j Integration
 
@@ -592,7 +593,7 @@ firefly:
 
 ---
 
-## 47. Continue-as-New
+## 55. Continue-as-New
 
 `ContinueAsNewService` implements the continue-as-new pattern for long-running workflows that accumulate state.
 
@@ -642,7 +643,7 @@ Contains:
 
 ---
 
-## 48. FAQ & Troubleshooting
+## 56. FAQ & Troubleshooting
 
 ### "My compensation didn't run"
 
@@ -729,7 +730,7 @@ Helper methods: `isTerminal()`, `isActive()`, `isSuccessful()`
 
 ---
 
-## 49. Recipe: Validation & Reporting
+## 57. Recipe: Validation & Reporting
 
 ### Validating Orchestration Definitions
 
@@ -789,7 +790,7 @@ Execution reporting works the same across all patterns:
 
 ---
 
-## 50. Recipe: Event Sourcing
+## 58. Recipe: Event Sourcing
 
 ### Setup
 

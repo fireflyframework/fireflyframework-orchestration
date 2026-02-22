@@ -3,15 +3,15 @@
 # Part IV: TCC Pattern
 
 **Contents:**
-- [§19 TCC Annotation Reference](#19-tcc-annotation-reference)
-- [§20 TCC Tutorial](#20-tcc-tutorial)
-- [§21 TCC Phases & Timeout/Retry](#21-tcc-phases--timeoutretry)
-- [§22 TCC Builder DSL](#22-tcc-builder-dsl)
-- [§23 TccEngine API](#23-tccengine-api)
-- [§24 TccResult](#24-tccresult)
-- [§25 TCC Composition](#25-tcc-composition)
+- [§21 TCC Annotation Reference](#21-tcc-annotation-reference)
+- [§22 TCC Tutorial](#22-tcc-tutorial)
+- [§23 TCC Phases & Timeout/Retry](#23-tcc-phases--timeoutretry)
+- [§24 TCC Builder DSL](#24-tcc-builder-dsl)
+- [§25 TccEngine API](#25-tccengine-api)
+- [§26 TccResult](#26-tccresult)
+- [§27 TCC Composition](#27-tcc-composition)
 
-## 19. TCC Annotation Reference
+## 21. TCC Annotation Reference
 
 ### @Tcc
 
@@ -136,7 +136,7 @@ Schedules automatic execution of a TCC transaction. `@Repeatable`.
 
 ---
 
-## 20. TCC Tutorial
+## 22. TCC Tutorial
 
 **TCC (Try-Confirm-Cancel)** is a two-phase distributed transaction protocol. Each participant implements three operations:
 
@@ -292,7 +292,7 @@ If `loyalty-points` Try fails, `debit` and `credit` proceed normally to Confirm.
 
 ---
 
-## 21. TCC Phases & Timeout/Retry
+## 23. TCC Phases & Timeout/Retry
 
 ### Phase Lifecycle
 
@@ -367,7 +367,7 @@ If the Confirm phase fails for any participant, the framework automatically chai
 
 ---
 
-## 22. TCC Builder DSL
+## 24. TCC Builder DSL
 
 The programmatic builder provides a fluent API for constructing TCC transactions without annotations.
 
@@ -486,7 +486,7 @@ TccDefinition def = TccBuilder.tccNoRetry("QuickTransfer")
 
 ---
 
-## 23. TccEngine API
+## 25. TccEngine API
 
 `TccEngine` is the primary entry point for TCC transaction execution.
 
@@ -533,7 +533,7 @@ TccInputs inputs = TccInputs.empty();
 
 ---
 
-## 24. TccResult
+## 26. TccResult
 
 `TccResult` is an immutable snapshot of a completed TCC transaction.
 
@@ -685,7 +685,7 @@ tccEngine.execute("TransferFunds", inputs)
 
 ---
 
-## 25. TCC Composition
+## 27. TCC Composition
 
 ### Overview
 

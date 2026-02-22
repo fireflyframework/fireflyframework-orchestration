@@ -22,7 +22,7 @@
 - [§41 Metrics Endpoint](#41-metrics-endpoint)
 - [§42 Event Sourcing](#42-event-sourcing)
 
-## 25. ExecutionContext
+## 28. ExecutionContext
 
 `ExecutionContext` is the thread-safe state carrier shared across all steps in an execution. It holds variables, headers, step results, step statuses, and pattern-specific state. All internal maps use `ConcurrentHashMap`.
 
@@ -150,7 +150,7 @@ List<List<String>> layers = ctx.getTopologyLayers();
 
 ---
 
-## 26. Argument Injection (Parameter Resolution)
+## 29. Argument Injection (Parameter Resolution)
 
 The `ArgumentResolver` automatically injects values into step method parameters based on annotations. This works across all three patterns (Workflow, Saga, TCC).
 
@@ -251,7 +251,7 @@ public Mono<String> ship(
 
 ---
 
-## 27. RetryPolicy
+## 30. RetryPolicy
 
 `RetryPolicy` configures retry behavior with exponential backoff and jitter for step execution.
 
@@ -320,7 +320,7 @@ For sagas and TCCs, there is no saga/tcc-level default — retry is always per-s
 
 ---
 
-## 28. Event Integration
+## 31. Event Integration
 
 The event system has two directions: **inbound** (triggering orchestrations from external events) and **outbound** (publishing events when steps complete).
 
@@ -437,7 +437,7 @@ The auto-configuration uses `@ConditionalOnMissingBean`, so your custom bean tak
 
 ---
 
-## 29. Scheduling
+## 32. Scheduling
 
 All three patterns support scheduled execution with full attribute parity.
 
@@ -515,7 +515,7 @@ firefly:
 
 ---
 
-## 30. Lifecycle Callbacks
+## 33. Lifecycle Callbacks
 
 All three patterns support lifecycle callbacks for handling success and error conditions. Callbacks are declared as methods on the same bean as the orchestration definition.
 
@@ -618,7 +618,7 @@ public void sendNotification(SagaResult result) {
 
 ---
 
-## 31. Persistence
+## 34. Persistence
 
 ### ExecutionPersistenceProvider Interface
 
@@ -658,11 +658,12 @@ record ExecutionState(
     List<List<String>> topologyLayers, // DAG layers
     String failureReason,              // error message (if failed)
     Instant startedAt,                 // execution start
-    Instant updatedAt                  // last update
+    Instant updatedAt,                 // last update
+    Optional<ExecutionReport> report   // final execution report
 )
 ```
 
-Methods: `withStatus(ExecutionStatus)`, `withFailure(String)`, `isTerminal()`.
+Methods: `withStatus(ExecutionStatus)`, `withFailure(String)`, `withReport(ExecutionReport)`, `isTerminal()`, `isSuccess()`, `isFailed()`.
 
 ### Provider Selection
 
@@ -754,7 +755,7 @@ The auto-configuration uses `@ConditionalOnMissingBean`, so your custom bean tak
 
 ---
 
-## 32. Dead-Letter Queue
+## 35. Dead-Letter Queue
 
 Failed executions are automatically sent to the DLQ for later inspection and retry.
 
@@ -834,7 +835,7 @@ DELETE /api/orchestration/dlq/{id}     # remove an entry
 
 ---
 
-## 33. Recovery Service
+## 36. Recovery Service
 
 The `RecoveryService` detects and cleans up stale executions — those that started but never reached a terminal state.
 
@@ -882,7 +883,7 @@ recoveryService.cleanupCompletedExecutions(Duration.ofDays(30))
 
 ---
 
-## 34. Observability: Events Interface
+## 37. Observability: Events Interface
 
 All orchestration lifecycle events flow through the `OrchestrationEvents` interface. Every method has a default no-op implementation, so you only override what you need.
 
@@ -959,7 +960,7 @@ public class SlackNotifier implements OrchestrationEvents {
 
 ---
 
-## 35. Observability: Metrics & Tracing
+## 38. Observability: Metrics & Tracing
 
 ### Metrics (Micrometer)
 
@@ -1017,7 +1018,7 @@ The tracer is wired automatically into engines when present — you don't need t
 
 ---
 
-## 36. Topology & DAG Execution
+## 39. Topology & DAG Execution
 
 ### TopologyBuilder
 
@@ -1088,7 +1089,7 @@ workflowQueryService.getTopologyLayers(correlationId)
 
 ---
 
-## 37. REST API
+## 40. REST API
 
 ### Configuration
 
@@ -1167,7 +1168,7 @@ OrchestrationException (sealed)
 
 ---
 
-## 38. Backpressure Strategies
+## 41. Backpressure Strategies
 
 The backpressure subsystem in `org.fireflyframework.orchestration.core.backpressure` provides reactive flow-control strategies for parallel step execution.
 
@@ -1297,7 +1298,7 @@ SagaResult result = sagaEngine.execute("OrderSaga", input, strategy).block();
 
 ---
 
-## 39. Execution Reporting
+## 42. Execution Reporting
 
 The reporting subsystem in `org.fireflyframework.orchestration.core.report` provides structured, immutable execution reports generated automatically by all three engines.
 
@@ -1398,7 +1399,7 @@ Reports are wired automatically by all three engines — no additional configura
 
 ---
 
-## 40. Validation Framework
+## 43. Validation Framework
 
 The validation subsystem in `org.fireflyframework.orchestration.core.validation` validates orchestration definitions at registration time, catching configuration errors before execution.
 
@@ -1484,7 +1485,7 @@ registry.register(definition);      // only reached if no ERRORs
 
 ---
 
-## 41. Metrics Endpoint
+## 44. Metrics Endpoint
 
 The `org.fireflyframework.orchestration.core.observability.OrchestrationMetricsEndpoint` exposes orchestration metrics through Spring Boot Actuator.
 
@@ -1553,7 +1554,7 @@ public Map<String, Object> metrics(@Selector String pattern) {
 
 ---
 
-## 42. Event Sourcing
+## 45. Event Sourcing
 
 The event sourcing subsystem in `org.fireflyframework.orchestration.persistence.eventsourced` provides full event-sourced persistence with aggregate reconstruction, snapshots, and read-side projections.
 
