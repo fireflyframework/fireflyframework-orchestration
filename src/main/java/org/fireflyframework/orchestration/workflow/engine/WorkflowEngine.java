@@ -103,7 +103,7 @@ public class WorkflowEngine {
                     ctx.getCorrelationId(), workflowId, ExecutionPattern.WORKFLOW,
                     ExecutionStatus.RUNNING, Map.of(), Map.of(), Map.of(), Map.of(),
                     input != null ? input : Map.of(), Map.of(), Set.of(), List.of(),
-                    null, Instant.now(), Instant.now());
+                    null, Instant.now(), Instant.now(), Optional.empty());
 
             events.onStart(workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW);
 
@@ -454,7 +454,7 @@ public class WorkflowEngine {
                 new HashMap<>(ctx.getStepAttempts()), new HashMap<>(ctx.getStepLatenciesMs()),
                 new HashMap<>(ctx.getVariables()),
                 new HashMap<>(ctx.getHeaders()), Set.copyOf(ctx.getIdempotencyKeys()),
-                ctx.getTopologyLayers(), null, ctx.getStartedAt(), Instant.now());
+                ctx.getTopologyLayers(), null, ctx.getStartedAt(), Instant.now(), Optional.empty());
     }
 
     /**

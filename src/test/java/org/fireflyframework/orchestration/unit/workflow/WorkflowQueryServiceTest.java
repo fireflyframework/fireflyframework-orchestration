@@ -49,7 +49,7 @@ class WorkflowQueryServiceTest {
                 Map.of("orderId", "ORD-123"),
                 Map.of("x-trace", "abc"),
                 Set.of(), List.of(List.of("validate"), List.of("process")),
-                null, Instant.now(), Instant.now());
+                null, Instant.now(), Instant.now(), Optional.empty());
         persistence.save(state).block();
     }
 

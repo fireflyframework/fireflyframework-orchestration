@@ -194,7 +194,8 @@ public class TccEngine {
         ExecutionState state = new ExecutionState(
                 ctx.getCorrelationId(), tcc.name, ExecutionPattern.TCC,
                 ExecutionStatus.TRYING, Map.of(), Map.of(), Map.of(), Map.of(),
-                Map.of(), Map.of(), Set.of(), List.of(), null, ctx.getStartedAt(), Instant.now());
+                Map.of(), Map.of(), Set.of(), List.of(), null, ctx.getStartedAt(), Instant.now(),
+                Optional.empty());
         return persistence.save(state)
                 .onErrorResume(err -> {
                     log.warn("[tcc] Failed to persist initial state: {}", ctx.getCorrelationId(), err);
@@ -210,7 +211,8 @@ public class TccEngine {
                 new HashMap<>(ctx.getStepAttempts()), new HashMap<>(ctx.getStepLatenciesMs()),
                 new HashMap<>(ctx.getVariables()),
                 new HashMap<>(ctx.getHeaders()), Set.copyOf(ctx.getIdempotencyKeys()),
-                List.of(), null, ctx.getStartedAt(), Instant.now());
+                List.of(), null, ctx.getStartedAt(), Instant.now(),
+                Optional.empty());
         return persistence.save(state)
                 .onErrorResume(err -> {
                     log.warn("[tcc] Failed to persist final state: {}", ctx.getCorrelationId(), err);

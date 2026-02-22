@@ -194,7 +194,8 @@ public class SagaEngine {
         ExecutionState state = new ExecutionState(
                 ctx.getCorrelationId(), saga.name, ExecutionPattern.SAGA,
                 ExecutionStatus.RUNNING, Map.of(), Map.of(), Map.of(), Map.of(),
-                Map.of(), Map.of(), Set.of(), List.of(), null, ctx.getStartedAt(), Instant.now());
+                Map.of(), Map.of(), Set.of(), List.of(), null, ctx.getStartedAt(), Instant.now(),
+                Optional.empty());
         return persistence.save(state)
                 .onErrorResume(err -> {
                     log.warn("[orchestration] Failed to persist initial saga state: {}", ctx.getCorrelationId(), err);
@@ -210,7 +211,8 @@ public class SagaEngine {
                 new HashMap<>(ctx.getStepAttempts()), new HashMap<>(ctx.getStepLatenciesMs()),
                 new HashMap<>(ctx.getVariables()),
                 new HashMap<>(ctx.getHeaders()), Set.copyOf(ctx.getIdempotencyKeys()),
-                ctx.getTopologyLayers(), null, ctx.getStartedAt(), Instant.now());
+                ctx.getTopologyLayers(), null, ctx.getStartedAt(), Instant.now(),
+                Optional.empty());
         return persistence.save(state)
                 .onErrorResume(err -> {
                     log.warn("[orchestration] Failed to persist final saga state: {}", ctx.getCorrelationId(), err);

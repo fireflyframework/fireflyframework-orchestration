@@ -18,6 +18,7 @@ package org.fireflyframework.orchestration.tcc.engine;
 
 import org.fireflyframework.orchestration.core.context.ExecutionContext;
 import org.fireflyframework.orchestration.core.context.TccPhase;
+import org.fireflyframework.orchestration.core.report.ExecutionReport;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -39,6 +40,7 @@ public final class TccResult {
     private final String failedParticipantId;
     private final TccPhase failedPhase;
     private final Map<String, ParticipantOutcome> participants;
+    private final ExecutionReport report;
 
     public record ParticipantOutcome(
             String participantId,
@@ -53,7 +55,7 @@ public final class TccResult {
     private TccResult(String tccName, String correlationId, Status status,
                       Instant startedAt, Instant completedAt,
                       Throwable error, String failedParticipantId, TccPhase failedPhase,
-                      Map<String, ParticipantOutcome> participants) {
+                      Map<String, ParticipantOutcome> participants, ExecutionReport report) {
         this.tccName = tccName;
         this.correlationId = correlationId;
         this.status = status;
@@ -63,6 +65,7 @@ public final class TccResult {
         this.failedParticipantId = failedParticipantId;
         this.failedPhase = failedPhase;
         this.participants = participants;
+        this.report = report;
     }
 
     public String tccName() { return tccName; }
@@ -78,6 +81,7 @@ public final class TccResult {
     public Optional<String> failedParticipantId() { return Optional.ofNullable(failedParticipantId); }
     public Optional<TccPhase> failedPhase() { return Optional.ofNullable(failedPhase); }
     public Map<String, ParticipantOutcome> participants() { return participants; }
+    public Optional<ExecutionReport> report() { return Optional.ofNullable(report); }
 
     @SuppressWarnings("unchecked")
     public <T> Optional<T> tryResultOf(String participantId, Class<T> type) {
@@ -90,7 +94,7 @@ public final class TccResult {
                                        Map<String, ParticipantOutcome> participants) {
         return new TccResult(tccName, ctx.getCorrelationId(), Status.CONFIRMED,
                 ctx.getStartedAt(), Instant.now(), null, null, null,
-                Collections.unmodifiableMap(new LinkedHashMap<>(participants)));
+                Collections.unmodifiableMap(new LinkedHashMap<>(participants)), null);
     }
 
     public static TccResult canceled(String tccName, ExecutionContext ctx,
@@ -99,7 +103,7 @@ public final class TccResult {
                                       Map<String, ParticipantOutcome> participants) {
         return new TccResult(tccName, ctx.getCorrelationId(), Status.CANCELED,
                 ctx.getStartedAt(), Instant.now(), error, failedParticipantId, failedPhase,
-                Collections.unmodifiableMap(new LinkedHashMap<>(participants)));
+                Collections.unmodifiableMap(new LinkedHashMap<>(participants)), null);
     }
 
     public static TccResult failed(String tccName, ExecutionContext ctx,
@@ -107,6 +111,14 @@ public final class TccResult {
                                     Map<String, ParticipantOutcome> participants) {
         return new TccResult(tccName, ctx.getCorrelationId(), Status.FAILED,
                 ctx.getStartedAt(), Instant.now(), error, failedParticipantId, failedPhase,
-                Collections.unmodifiableMap(new LinkedHashMap<>(participants)));
+                Collections.unmodifiableMap(new LinkedHashMap<>(participants)), null);
+    }
+
+    /**
+     * Returns a new TccResult with the given execution report attached.
+     */
+    public TccResult withReport(ExecutionReport executionReport) {
+        return new TccResult(tccName, correlationId, status, startedAt, completedAt,
+                error, failedParticipantId, failedPhase, participants, executionReport);
     }
 }

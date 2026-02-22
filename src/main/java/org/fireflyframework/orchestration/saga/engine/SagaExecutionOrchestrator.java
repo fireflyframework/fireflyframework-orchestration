@@ -236,7 +236,7 @@ public class SagaExecutionOrchestrator {
                 new HashMap<>(ctx.getHeaders()),
                 Set.copyOf(ctx.getIdempotencyKeys()),
                 ctx.getTopologyLayers(),
-                null, ctx.getStartedAt(), Instant.now());
+                null, ctx.getStartedAt(), Instant.now(), Optional.empty());
         return persistence.save(checkpoint)
                 .onErrorResume(err -> {
                     log.warn("[orchestration] Failed to save saga checkpoint: {}", ctx.getCorrelationId(), err);

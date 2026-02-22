@@ -39,6 +39,7 @@ import reactor.test.StepVerifier;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.*;
@@ -97,7 +98,7 @@ class WorkflowSuspendResumeTest {
                 "suspend-test-id", "suspend-wf", ExecutionPattern.WORKFLOW,
                 ExecutionStatus.RUNNING, Map.of(), Map.of(), Map.of(), Map.of(),
                 Map.of("key", "value"), Map.of(), Set.of(), List.of(), null,
-                Instant.now(), Instant.now());
+                Instant.now(), Instant.now(), Optional.empty());
 
         StepVerifier.create(persistence.save(runningState)
                 .then(engine.suspendWorkflow("suspend-test-id", "user requested")))
@@ -118,7 +119,7 @@ class WorkflowSuspendResumeTest {
                 "resume-test-id", "suspend-wf", ExecutionPattern.WORKFLOW,
                 ExecutionStatus.SUSPENDED, Map.of(), Map.of(), Map.of(), Map.of(),
                 Map.of("key", "value"), Map.of(), Set.of(), List.of(), null,
-                Instant.now(), Instant.now());
+                Instant.now(), Instant.now(), Optional.empty());
 
         StepVerifier.create(persistence.save(suspendedState)
                 .then(engine.resumeWorkflow("resume-test-id")))
@@ -135,7 +136,7 @@ class WorkflowSuspendResumeTest {
                 "completed-id", "suspend-wf", ExecutionPattern.WORKFLOW,
                 ExecutionStatus.COMPLETED, Map.of(), Map.of(), Map.of(), Map.of(),
                 Map.of(), Map.of(), Set.of(), List.of(), null,
-                Instant.now(), Instant.now());
+                Instant.now(), Instant.now(), Optional.empty());
 
         StepVerifier.create(persistence.save(completedState)
                 .then(engine.suspendWorkflow("completed-id")))
@@ -149,7 +150,7 @@ class WorkflowSuspendResumeTest {
                 "running-id", "suspend-wf", ExecutionPattern.WORKFLOW,
                 ExecutionStatus.RUNNING, Map.of(), Map.of(), Map.of(), Map.of(),
                 Map.of(), Map.of(), Set.of(), List.of(), null,
-                Instant.now(), Instant.now());
+                Instant.now(), Instant.now(), Optional.empty());
 
         StepVerifier.create(persistence.save(runningState)
                 .then(engine.resumeWorkflow("running-id")))

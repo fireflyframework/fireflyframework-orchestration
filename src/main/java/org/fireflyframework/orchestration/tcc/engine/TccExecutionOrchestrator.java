@@ -341,7 +341,7 @@ public class TccExecutionOrchestrator {
                 new HashMap<>(ctx.getHeaders()),
                 Set.copyOf(ctx.getIdempotencyKeys()),
                 List.of(),
-                null, ctx.getStartedAt(), Instant.now());
+                null, ctx.getStartedAt(), Instant.now(), Optional.empty());
         return persistence.save(checkpoint)
                 .onErrorResume(err -> {
                     log.warn("[tcc] Failed to save TCC checkpoint: {}", ctx.getCorrelationId(), err);

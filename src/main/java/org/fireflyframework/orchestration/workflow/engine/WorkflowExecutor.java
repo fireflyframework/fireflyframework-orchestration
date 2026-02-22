@@ -303,7 +303,7 @@ public class WorkflowExecutor {
                 new HashMap<>(ctx.getHeaders()),
                 Set.copyOf(ctx.getIdempotencyKeys()),
                 ctx.getTopologyLayers(),
-                null, ctx.getStartedAt(), Instant.now());
+                null, ctx.getStartedAt(), Instant.now(), Optional.empty());
         return persistence.save(checkpoint)
                 .onErrorResume(err -> {
                     log.warn("[orchestration] Failed to save workflow checkpoint: {}", ctx.getCorrelationId(), err);
