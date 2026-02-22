@@ -552,7 +552,7 @@ public class WorkflowEngine {
         }
 
         Object bean = def.workflowBean();
-        if (bean == null) return Mono.empty();
+        if (bean == null || error == null) return Mono.empty();
 
         List<Mono<Void>> syncInvocations = new ArrayList<>();
 
