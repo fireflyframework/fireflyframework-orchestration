@@ -16,6 +16,8 @@
 
 package org.fireflyframework.orchestration.config;
 
+import org.fireflyframework.orchestration.core.backpressure.BackpressureStrategy;
+import org.fireflyframework.orchestration.core.backpressure.BackpressureStrategyFactory;
 import org.fireflyframework.orchestration.core.dlq.DeadLetterService;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.model.CompensationPolicy;
@@ -24,11 +26,20 @@ import org.fireflyframework.orchestration.core.observability.OrchestrationTracer
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.saga.compensation.CompensationErrorHandler;
+import org.fireflyframework.orchestration.saga.compensation.CompensationErrorHandlerFactory;
 import org.fireflyframework.orchestration.saga.compensation.DefaultCompensationErrorHandler;
 import org.fireflyframework.orchestration.saga.compensation.SagaCompensator;
+import org.fireflyframework.orchestration.saga.composition.CompositionCompensationManager;
+import org.fireflyframework.orchestration.saga.composition.CompositionDataFlowManager;
+import org.fireflyframework.orchestration.saga.composition.CompositionExecutionOrchestrator;
+import org.fireflyframework.orchestration.saga.composition.CompositionTemplateRegistry;
+import org.fireflyframework.orchestration.saga.composition.CompositionValidator;
+import org.fireflyframework.orchestration.saga.composition.CompositionVisualizationService;
+import org.fireflyframework.orchestration.saga.composition.SagaCompositor;
 import org.fireflyframework.orchestration.saga.engine.SagaEngine;
 import org.fireflyframework.orchestration.saga.engine.SagaExecutionOrchestrator;
 import org.fireflyframework.orchestration.saga.registry.SagaRegistry;
+import org.fireflyframework.orchestration.core.validation.OrchestrationValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -49,9 +60,10 @@ public class SagaAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public SagaRegistry sagaRegistry(ApplicationContext applicationContext) {
+    public SagaRegistry sagaRegistry(ApplicationContext applicationContext,
+                                      ObjectProvider<OrchestrationValidator> validator) {
         log.info("[orchestration] Saga registry initialized");
-        return new SagaRegistry(applicationContext);
+        return new SagaRegistry(applicationContext, validator.getIfAvailable());
     }
 
     @Bean
@@ -59,14 +71,29 @@ public class SagaAutoConfiguration {
     public SagaExecutionOrchestrator sagaExecutionOrchestrator(StepInvoker stepInvoker,
                                                                 OrchestrationEvents events,
                                                                 OrchestrationEventPublisher eventPublisher,
-                                                                ExecutionPersistenceProvider persistence) {
-        return new SagaExecutionOrchestrator(stepInvoker, events, eventPublisher, persistence);
+                                                                ExecutionPersistenceProvider persistence,
+                                                                OrchestrationProperties properties) {
+        BackpressureStrategy backpressure = BackpressureStrategyFactory
+                .getStrategy(properties.getBackpressure().getStrategy())
+                .orElse(null);
+        if (backpressure != null) {
+            log.info("[orchestration] Saga execution orchestrator using backpressure strategy: {}",
+                    properties.getBackpressure().getStrategy());
+        }
+        return new SagaExecutionOrchestrator(stepInvoker, events, eventPublisher, persistence, backpressure);
     }
 
     @Bean
     @ConditionalOnMissingBean(CompensationErrorHandler.class)
-    public CompensationErrorHandler compensationErrorHandler() {
-        return new DefaultCompensationErrorHandler();
+    public CompensationErrorHandler compensationErrorHandler(OrchestrationProperties properties) {
+        String handlerName = properties.getSaga().getCompensationErrorHandler();
+        log.info("[orchestration] Creating compensation error handler: {}", handlerName);
+        return CompensationErrorHandlerFactory.getHandler(handlerName)
+                .orElseGet(() -> {
+                    log.warn("[orchestration] Unknown compensation error handler '{}', falling back to default",
+                            handlerName);
+                    return new DefaultCompensationErrorHandler();
+                });
     }
 
     @Bean
@@ -95,5 +122,63 @@ public class SagaAutoConfiguration {
         return new SagaEngine(registry, events, orchestrator,
                 persistence, dlqService.getIfAvailable(), compensator, eventPublisher,
                 tracer.getIfAvailable());
+    }
+
+    // --- Saga Composition beans ---
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CompositionDataFlowManager compositionDataFlowManager() {
+        return new CompositionDataFlowManager();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CompositionCompensationManager compositionCompensationManager(
+            SagaEngine sagaEngine, OrchestrationProperties properties) {
+        return new CompositionCompensationManager(sagaEngine,
+                properties.getSaga().getCompensationPolicy());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CompositionExecutionOrchestrator compositionExecutionOrchestrator(
+            SagaEngine sagaEngine, CompositionDataFlowManager dataFlowManager,
+            OrchestrationProperties properties) {
+        BackpressureStrategy backpressure = BackpressureStrategyFactory
+                .getStrategy(properties.getBackpressure().getStrategy())
+                .orElse(null);
+        return new CompositionExecutionOrchestrator(sagaEngine, dataFlowManager, backpressure);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SagaCompositor sagaCompositor(SagaEngine sagaEngine,
+                                          OrchestrationEvents events,
+                                          CompositionExecutionOrchestrator executionOrchestrator,
+                                          CompositionCompensationManager compensationManager) {
+        log.info("[orchestration] Saga compositor initialized");
+        return new SagaCompositor(sagaEngine, events, executionOrchestrator, compensationManager);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CompositionValidator compositionValidator(SagaRegistry sagaRegistry) {
+        log.info("[orchestration] Saga composition validator initialized");
+        return new CompositionValidator(sagaRegistry);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CompositionVisualizationService compositionVisualizationService() {
+        log.info("[orchestration] Saga composition visualization service initialized");
+        return new CompositionVisualizationService();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CompositionTemplateRegistry compositionTemplateRegistry() {
+        log.info("[orchestration] Saga composition template registry initialized");
+        return new CompositionTemplateRegistry();
     }
 }

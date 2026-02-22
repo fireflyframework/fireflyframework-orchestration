@@ -28,6 +28,7 @@ import org.fireflyframework.orchestration.workflow.engine.WorkflowEngine;
 import org.fireflyframework.orchestration.workflow.engine.WorkflowExecutor;
 import org.fireflyframework.orchestration.workflow.query.WorkflowQueryService;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowRegistry;
+import org.fireflyframework.orchestration.core.validation.OrchestrationValidator;
 import org.fireflyframework.orchestration.workflow.rest.WorkflowController;
 import org.fireflyframework.orchestration.workflow.search.SearchAttributeProjection;
 import org.fireflyframework.orchestration.workflow.search.WorkflowSearchService;
@@ -55,9 +56,10 @@ public class WorkflowAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public WorkflowRegistry workflowRegistry(ApplicationContext applicationContext) {
+    public WorkflowRegistry workflowRegistry(ApplicationContext applicationContext,
+                                              ObjectProvider<OrchestrationValidator> validator) {
         log.info("[orchestration] Workflow registry initialized");
-        return new WorkflowRegistry(applicationContext);
+        return new WorkflowRegistry(applicationContext, validator.getIfAvailable());
     }
 
     @Bean

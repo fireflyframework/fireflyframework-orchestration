@@ -350,7 +350,18 @@ firefly:
 
 ## Documentation
 
-For the complete reference guide covering all three patterns in depth, including tutorials, builder DSL reference, argument injection, persistence providers, observability, and production checklist, see **[docs/reference-guide.md](docs/reference-guide.md)**.
+Full documentation lives in the [`docs/`](docs/README.md) folder:
+
+| Document | Description |
+|----------|-------------|
+| [Tutorial](docs/tutorial.md) | Step-by-step fintech payment processing example |
+| [Foundations](docs/foundations.md) | Introduction, architecture, pattern selection |
+| [Workflow](docs/workflow.md) | Workflow annotations, builder, engine, signals/timers |
+| [Saga](docs/saga.md) | Saga annotations, builder, compensation, fan-out |
+| [TCC](docs/tcc.md) | TCC annotations, builder, try/confirm/cancel phases |
+| [Core Infrastructure](docs/core-infrastructure.md) | ExecutionContext, retry, events, persistence, DLQ, observability |
+| [Configuration](docs/configuration.md) | Properties, auto-configuration, Spring Boot integration |
+| [Recipes & Production](docs/recipes-and-production.md) | Composition, testing, error handling, production checklist |
 
 ---
 

@@ -33,6 +33,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.*;
@@ -65,14 +66,14 @@ class RecoveryServiceTest {
                 ExecutionStatus.RUNNING, Map.of(), Map.of(), Map.of(), Map.of(),
                 Map.of(), Map.of(), Set.of(), List.of(), null,
                 Instant.now().minus(Duration.ofHours(2)),
-                Instant.now().minus(Duration.ofHours(1))); // Updated 1 hour ago
+                Instant.now().minus(Duration.ofHours(1)), Optional.empty()); // Updated 1 hour ago
 
         // Create a fresh RUNNING execution
         ExecutionState freshState = new ExecutionState(
                 "fresh-1", "my-saga", ExecutionPattern.SAGA,
                 ExecutionStatus.RUNNING, Map.of(), Map.of(), Map.of(), Map.of(),
                 Map.of(), Map.of(), Set.of(), List.of(), null,
-                Instant.now(), Instant.now()); // Updated just now
+                Instant.now(), Instant.now(), Optional.empty()); // Updated just now
 
         StepVerifier.create(
                 persistence.save(staleState)
@@ -93,7 +94,7 @@ class RecoveryServiceTest {
                 ExecutionStatus.COMPLETED, Map.of(), Map.of(), Map.of(), Map.of(),
                 Map.of(), Map.of(), Set.of(), List.of(), null,
                 Instant.now().minus(Duration.ofHours(2)),
-                Instant.now().minus(Duration.ofHours(1)));
+                Instant.now().minus(Duration.ofHours(1)), Optional.empty());
 
         StepVerifier.create(
                 persistence.save(completedState)
@@ -111,14 +112,14 @@ class RecoveryServiceTest {
                 ExecutionStatus.COMPLETED, Map.of(), Map.of(), Map.of(), Map.of(),
                 Map.of(), Map.of(), Set.of(), List.of(), null,
                 Instant.now().minus(Duration.ofDays(10)),
-                Instant.now().minus(Duration.ofDays(10)));
+                Instant.now().minus(Duration.ofDays(10)), Optional.empty());
 
         // Recent completed execution
         ExecutionState recentCompleted = new ExecutionState(
                 "recent-1", "my-wf", ExecutionPattern.WORKFLOW,
                 ExecutionStatus.COMPLETED, Map.of(), Map.of(), Map.of(), Map.of(),
                 Map.of(), Map.of(), Set.of(), List.of(), null,
-                Instant.now(), Instant.now());
+                Instant.now(), Instant.now(), Optional.empty());
 
         StepVerifier.create(
                 persistence.save(oldCompleted)

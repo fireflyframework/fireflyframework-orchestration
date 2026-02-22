@@ -19,6 +19,8 @@ package org.fireflyframework.orchestration.saga.registry;
 import org.fireflyframework.orchestration.core.exception.DuplicateDefinitionException;
 import org.fireflyframework.orchestration.core.exception.ExecutionNotFoundException;
 import org.fireflyframework.orchestration.core.topology.TopologyBuilder;
+import org.fireflyframework.orchestration.core.validation.OrchestrationValidator;
+import org.fireflyframework.orchestration.core.validation.ValidationIssue;
 import org.fireflyframework.orchestration.saga.annotation.*;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.context.ApplicationContext;
@@ -37,11 +39,17 @@ import java.util.concurrent.ConcurrentHashMap;
 public class SagaRegistry {
 
     private final ApplicationContext applicationContext;
+    private final OrchestrationValidator validator;
     private final Map<String, SagaDefinition> sagas = new ConcurrentHashMap<>();
     private volatile boolean scanned = false;
 
     public SagaRegistry(ApplicationContext applicationContext) {
+        this(applicationContext, null);
+    }
+
+    public SagaRegistry(ApplicationContext applicationContext, OrchestrationValidator validator) {
         this.applicationContext = applicationContext;
+        this.validator = validator;
     }
 
     public SagaDefinition getSaga(String name) {
@@ -64,6 +72,11 @@ public class SagaRegistry {
     }
 
     public void register(SagaDefinition definition) {
+        if (validator != null) {
+            List<ValidationIssue> issues = validator.validateSaga(definition);
+            validator.validateAndThrow(issues);
+        }
+
         if (sagas.putIfAbsent(definition.name, definition) != null) {
             throw new DuplicateDefinitionException("saga '" + definition.name + "'");
         }
@@ -122,6 +135,11 @@ public class SagaRegistry {
             // Scan lifecycle callback methods
             sagaDef.onSagaCompleteMethods = findAnnotatedMethods(targetClass, OnSagaComplete.class);
             sagaDef.onSagaErrorMethods = findAnnotatedMethods(targetClass, OnSagaError.class);
+
+            if (validator != null) {
+                List<ValidationIssue> issues = validator.validateSaga(sagaDef);
+                validator.validateAndThrow(issues);
+            }
 
             sagas.putIfAbsent(sagaName, sagaDef);
         }

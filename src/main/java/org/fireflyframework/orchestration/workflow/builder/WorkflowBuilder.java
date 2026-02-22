@@ -18,6 +18,8 @@ package org.fireflyframework.orchestration.workflow.builder;
 
 import org.fireflyframework.orchestration.core.model.RetryPolicy;
 import org.fireflyframework.orchestration.core.model.TriggerMode;
+import org.fireflyframework.orchestration.workflow.annotation.WaitForSignal;
+import org.fireflyframework.orchestration.workflow.annotation.WaitForTimer;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowDefinition;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowStepDefinition;
 
@@ -25,6 +27,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 public class WorkflowBuilder {
 
@@ -95,7 +98,7 @@ public class WorkflowBuilder {
     public WorkflowDefinition build() {
         return new WorkflowDefinition(name, name, description, version, List.copyOf(steps),
                 triggerMode, triggerEventType, timeoutMs, retryPolicy, null, List.of(), List.of(), List.of(),
-                publishEvents, layerConcurrency);
+                publishEvents, layerConcurrency, Map.of());
     }
 
     public static class StepBuilder {
@@ -119,6 +122,13 @@ public class WorkflowBuilder {
         private boolean async = false;
         private boolean compensatable = false;
         private String compensationMethod = "";
+        private List<WaitForSignal> waitForAllSignals = List.of();
+        private List<WaitForTimer> waitForAllTimers = List.of();
+        private List<WaitForSignal> waitForAnySignals = List.of();
+        private List<WaitForTimer> waitForAnyTimers = List.of();
+        private String childWorkflowId;
+        private boolean childWaitForCompletion = true;
+        private long childTimeoutMs = 0;
 
         StepBuilder(WorkflowBuilder parent, String stepId) {
             this.parent = parent;
@@ -205,11 +215,51 @@ public class WorkflowBuilder {
             return this;
         }
 
+        /**
+         * Configures the step to wait for ALL specified signals and timers before proceeding.
+         */
+        public StepBuilder waitForAll(WaitForSignal[] signals, WaitForTimer[] timers) {
+            this.waitForAllSignals = signals != null ? List.of(signals) : List.of();
+            this.waitForAllTimers = timers != null ? List.of(timers) : List.of();
+            return this;
+        }
+
+        /**
+         * Configures the step to wait for ANY of the specified signals or timers before proceeding.
+         */
+        public StepBuilder waitForAny(WaitForSignal[] signals, WaitForTimer[] timers) {
+            this.waitForAnySignals = signals != null ? List.of(signals) : List.of();
+            this.waitForAnyTimers = timers != null ? List.of(timers) : List.of();
+            return this;
+        }
+
+        /**
+         * Configures the step to spawn a child workflow with default settings (wait for completion, no timeout).
+         */
+        public StepBuilder childWorkflow(String workflowId) {
+            this.childWorkflowId = workflowId;
+            this.childWaitForCompletion = true;
+            this.childTimeoutMs = 0;
+            return this;
+        }
+
+        /**
+         * Configures the step to spawn a child workflow with explicit wait and timeout settings.
+         */
+        public StepBuilder childWorkflow(String workflowId, boolean wait, long timeoutMs) {
+            this.childWorkflowId = workflowId;
+            this.childWaitForCompletion = wait;
+            this.childTimeoutMs = timeoutMs;
+            return this;
+        }
+
         public WorkflowBuilder add() {
             var stepDef = new WorkflowStepDefinition(stepId, name, description, dependsOn, order,
                     outputEventType, timeoutMs, retryPolicy, condition,
                     async, compensatable, compensationMethod, bean, method,
-                    waitForSignal, signalTimeoutMs, waitForTimerDelayMs, waitForTimerId);
+                    waitForSignal, signalTimeoutMs, waitForTimerDelayMs, waitForTimerId,
+                    waitForAllSignals, waitForAllTimers, waitForAnySignals, waitForAnyTimers,
+                    childWorkflowId, childWaitForCompletion, childTimeoutMs);
             return parent.addStep(stepDef);
         }
     }

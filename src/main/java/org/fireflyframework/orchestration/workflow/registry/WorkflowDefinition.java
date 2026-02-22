@@ -21,6 +21,7 @@ import org.fireflyframework.orchestration.core.model.TriggerMode;
 
 import java.lang.reflect.Method;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public record WorkflowDefinition(
@@ -38,10 +39,26 @@ public record WorkflowDefinition(
         List<Method> onWorkflowCompleteMethods,
         List<Method> onWorkflowErrorMethods,
         boolean publishEvents,
-        int layerConcurrency
+        int layerConcurrency,
+        Map<String, Method> queryMethods
 ) {
     /**
-     * Backward-compatible constructor that defaults {@code publishEvents} to {@code false}.
+     * Backward-compatible constructor (15 args) — defaults {@code queryMethods} to empty map.
+     */
+    public WorkflowDefinition(String workflowId, String name, String description, String version,
+                               List<WorkflowStepDefinition> steps, TriggerMode triggerMode,
+                               String triggerEventType, long timeoutMs, RetryPolicy retryPolicy,
+                               Object workflowBean, List<Method> onStepCompleteMethods,
+                               List<Method> onWorkflowCompleteMethods, List<Method> onWorkflowErrorMethods,
+                               boolean publishEvents, int layerConcurrency) {
+        this(workflowId, name, description, version, steps, triggerMode, triggerEventType, timeoutMs,
+                retryPolicy, workflowBean, onStepCompleteMethods, onWorkflowCompleteMethods,
+                onWorkflowErrorMethods, publishEvents, layerConcurrency, Map.of());
+    }
+
+    /**
+     * Backward-compatible constructor (13 args) — defaults {@code publishEvents} to {@code false},
+     * {@code layerConcurrency} to {@code 0}, and {@code queryMethods} to empty map.
      */
     public WorkflowDefinition(String workflowId, String name, String description, String version,
                                List<WorkflowStepDefinition> steps, TriggerMode triggerMode,
@@ -50,8 +67,9 @@ public record WorkflowDefinition(
                                List<Method> onWorkflowCompleteMethods, List<Method> onWorkflowErrorMethods) {
         this(workflowId, name, description, version, steps, triggerMode, triggerEventType, timeoutMs,
                 retryPolicy, workflowBean, onStepCompleteMethods, onWorkflowCompleteMethods,
-                onWorkflowErrorMethods, false, 0);
+                onWorkflowErrorMethods, false, 0, Map.of());
     }
+
     public Optional<WorkflowStepDefinition> findStep(String stepId) {
         return steps.stream().filter(s -> s.stepId().equals(stepId)).findFirst();
     }

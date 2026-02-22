@@ -20,25 +20,35 @@ import org.fireflyframework.orchestration.core.observability.OrchestrationEvents
 import org.fireflyframework.orchestration.saga.engine.SagaEngine;
 import org.fireflyframework.orchestration.saga.engine.SagaResult;
 import lombok.extern.slf4j.Slf4j;
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Orchestrates the execution of a saga composition: layer-by-layer execution with
  * parallel sagas, data flow between sagas, and cascading compensation on failure.
+ *
+ * <p>Delegates to {@link CompositionExecutionOrchestrator} for layer execution,
+ * {@link CompositionDataFlowManager} for data flow resolution, and
+ * {@link CompositionCompensationManager} for reverse-order compensation.
+ * Uses {@link CompositionContext} to track execution state.
  */
 @Slf4j
 public class SagaCompositor {
 
     private final SagaEngine sagaEngine;
     private final OrchestrationEvents events;
+    private final CompositionExecutionOrchestrator executionOrchestrator;
+    private final CompositionCompensationManager compensationManager;
 
-    public SagaCompositor(SagaEngine sagaEngine, OrchestrationEvents events) {
+    public SagaCompositor(SagaEngine sagaEngine,
+                           OrchestrationEvents events,
+                           CompositionExecutionOrchestrator executionOrchestrator,
+                           CompositionCompensationManager compensationManager) {
         this.sagaEngine = sagaEngine;
         this.events = events;
+        this.executionOrchestrator = executionOrchestrator;
+        this.compensationManager = compensationManager;
     }
 
     /**
@@ -48,105 +58,30 @@ public class SagaCompositor {
      */
     public Mono<CompositionResult> compose(SagaComposition composition, Map<String, Object> globalInput) {
         String correlationId = UUID.randomUUID().toString();
+        CompositionContext context = new CompositionContext(correlationId);
         events.onCompositionStarted(composition.name(), correlationId);
 
         List<List<SagaComposition.CompositionSaga>> layers = composition.getExecutableLayers();
-        Map<String, SagaResult> results = new ConcurrentHashMap<>();
-        Map<String, Map<String, Object>> sagaOutputs = new ConcurrentHashMap<>();
 
-        return executeLayersSequentially(composition, layers, globalInput, results, sagaOutputs, 0)
+        return executionOrchestrator.executeLayers(composition, layers, globalInput, context, 0)
                 .flatMap(success -> {
                     events.onCompositionCompleted(composition.name(), correlationId, success);
                     if (success) {
                         return Mono.just(CompositionResult.success(
-                                composition.name(), correlationId, Map.copyOf(results)));
+                                composition.name(), correlationId,
+                                Map.copyOf(context.getSagaResults())));
                     } else {
-                        // Find the failure
-                        Throwable error = results.values().stream()
+                        Throwable error = context.getSagaResults().values().stream()
                                 .filter(r -> !r.isSuccess())
                                 .findFirst()
-                                .flatMap(r -> r.error())
+                                .flatMap(SagaResult::error)
                                 .orElse(new RuntimeException("Composition failed"));
-                        return Mono.just(CompositionResult.failure(
-                                composition.name(), correlationId, Map.copyOf(results), error));
+
+                        return compensationManager.compensateComposition(composition, context)
+                                .then(Mono.just(CompositionResult.failure(
+                                        composition.name(), correlationId,
+                                        Map.copyOf(context.getSagaResults()), error)));
                     }
                 });
-    }
-
-    private Mono<Boolean> executeLayersSequentially(
-            SagaComposition composition,
-            List<List<SagaComposition.CompositionSaga>> layers,
-            Map<String, Object> globalInput,
-            Map<String, SagaResult> results,
-            Map<String, Map<String, Object>> sagaOutputs,
-            int layerIndex) {
-
-        if (layerIndex >= layers.size()) {
-            return Mono.just(true);
-        }
-
-        List<SagaComposition.CompositionSaga> layer = layers.get(layerIndex);
-
-        return Flux.fromIterable(layer)
-                .flatMap(saga -> executeSaga(composition, saga, globalInput, sagaOutputs)
-                        .doOnNext(result -> {
-                            results.put(saga.alias(), result);
-                            if (result.isSuccess()) {
-                                sagaOutputs.put(saga.alias(), result.stepResults());
-                            }
-                        }))
-                .collectList()
-                .flatMap(layerResults -> {
-                    boolean layerSuccess = layerResults.stream()
-                            .allMatch(r -> r.isSuccess() ||
-                                    composition.sagaMap().values().stream()
-                                            .filter(s -> s.alias().equals(findAlias(composition, r)))
-                                            .anyMatch(SagaComposition.CompositionSaga::optional));
-
-                    if (!layerSuccess) {
-                        return Mono.just(false);
-                    }
-
-                    return executeLayersSequentially(composition, layers, globalInput,
-                            results, sagaOutputs, layerIndex + 1);
-                });
-    }
-
-    private Mono<SagaResult> executeSaga(SagaComposition composition,
-                                           SagaComposition.CompositionSaga saga,
-                                           Map<String, Object> globalInput,
-                                           Map<String, Map<String, Object>> sagaOutputs) {
-        Map<String, Object> input = new LinkedHashMap<>(globalInput);
-        input.putAll(saga.staticInput());
-
-        // Apply data mappings
-        for (SagaComposition.DataMapping mapping : composition.dataMappings()) {
-            if (mapping.targetSaga().equals(saga.alias())) {
-                var sourceOutput = sagaOutputs.get(mapping.sourceSaga());
-                if (sourceOutput != null && sourceOutput.containsKey(mapping.sourceField())) {
-                    input.put(mapping.targetField(), sourceOutput.get(mapping.sourceField()));
-                }
-            }
-        }
-
-        log.info("[composition] Executing saga '{}' (alias: '{}')", saga.sagaName(), saga.alias());
-        return sagaEngine.execute(saga.sagaName(), input)
-                .onErrorResume(err -> {
-                    if (saga.optional()) {
-                        log.warn("[composition] Optional saga '{}' failed, continuing: {}",
-                                saga.alias(), err.getMessage());
-                        return Mono.just(SagaResult.failed(saga.sagaName(), null,
-                                null, err, Map.of()));
-                    }
-                    return Mono.error(err);
-                });
-    }
-
-    private String findAlias(SagaComposition composition, SagaResult result) {
-        return composition.sagas().stream()
-                .filter(s -> s.sagaName().equals(result.sagaName()))
-                .map(SagaComposition.CompositionSaga::alias)
-                .findFirst()
-                .orElse("");
     }
 }

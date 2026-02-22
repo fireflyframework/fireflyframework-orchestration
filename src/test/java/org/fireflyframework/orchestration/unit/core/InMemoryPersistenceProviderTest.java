@@ -40,7 +40,7 @@ class InMemoryPersistenceProviderTest {
     private ExecutionState createState(String id, ExecutionPattern pattern, ExecutionStatus status) {
         return new ExecutionState(id, "test-" + id, pattern, status,
                 Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of(),
-                Set.of(), List.of(), null, Instant.now(), Instant.now());
+                Set.of(), List.of(), null, Instant.now(), Instant.now(), Optional.empty());
     }
 
     @Test
@@ -95,7 +95,8 @@ class InMemoryPersistenceProviderTest {
     void cleanup_removesOldTerminalEntries() {
         var oldState = new ExecutionState("old", "test", ExecutionPattern.SAGA, ExecutionStatus.COMPLETED,
                 Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Map.of(), Set.of(), List.of(),
-                null, Instant.now().minus(Duration.ofHours(2)), Instant.now().minus(Duration.ofHours(2)));
+                null, Instant.now().minus(Duration.ofHours(2)), Instant.now().minus(Duration.ofHours(2)),
+                Optional.empty());
         var recentState = createState("recent", ExecutionPattern.SAGA, ExecutionStatus.COMPLETED);
 
         StepVerifier.create(

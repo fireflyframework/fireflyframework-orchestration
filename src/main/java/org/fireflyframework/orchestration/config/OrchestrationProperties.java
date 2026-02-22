@@ -56,6 +56,19 @@ import java.time.Duration;
  *       enabled: true
  *     tracing:
  *       enabled: true
+ *     backpressure:
+ *       strategy: adaptive
+ *       batch-size: 10
+ *       circuit-breaker:
+ *         failure-threshold: 5
+ *         recovery-timeout: 30s
+ *         half-open-max-calls: 3
+ *     validation:
+ *       enabled: true
+ *       fail-on-warning: false
+ *     eventsourcing:
+ *       snapshot-interval: 100
+ *       projection-poll-interval: 5s
  * }</pre>
  */
 @ConfigurationProperties(prefix = "firefly.orchestration")
@@ -97,6 +110,15 @@ public class OrchestrationProperties {
     @NestedConfigurationProperty
     private ResilienceProperties resilience = new ResilienceProperties();
 
+    @NestedConfigurationProperty
+    private BackpressureProperties backpressure = new BackpressureProperties();
+
+    @NestedConfigurationProperty
+    private ValidationProperties validation = new ValidationProperties();
+
+    @NestedConfigurationProperty
+    private EventSourcingProperties eventsourcing = new EventSourcingProperties();
+
     // --- Getters and Setters ---
 
     public WorkflowProperties getWorkflow() { return workflow; }
@@ -135,6 +157,15 @@ public class OrchestrationProperties {
     public ResilienceProperties getResilience() { return resilience; }
     public void setResilience(ResilienceProperties resilience) { this.resilience = resilience; }
 
+    public BackpressureProperties getBackpressure() { return backpressure; }
+    public void setBackpressure(BackpressureProperties backpressure) { this.backpressure = backpressure; }
+
+    public ValidationProperties getValidation() { return validation; }
+    public void setValidation(ValidationProperties validation) { this.validation = validation; }
+
+    public EventSourcingProperties getEventsourcing() { return eventsourcing; }
+    public void setEventsourcing(EventSourcingProperties eventsourcing) { this.eventsourcing = eventsourcing; }
+
     // --- Nested property classes ---
 
     public static class WorkflowProperties {
@@ -148,6 +179,7 @@ public class OrchestrationProperties {
         private boolean enabled = true;
         private CompensationPolicy compensationPolicy = CompensationPolicy.STRICT_SEQUENTIAL;
         private Duration defaultTimeout = Duration.ofMinutes(5);
+        private String compensationErrorHandler = "default";
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -157,17 +189,37 @@ public class OrchestrationProperties {
 
         public Duration getDefaultTimeout() { return defaultTimeout; }
         public void setDefaultTimeout(Duration defaultTimeout) { this.defaultTimeout = defaultTimeout; }
+
+        public String getCompensationErrorHandler() { return compensationErrorHandler; }
+        public void setCompensationErrorHandler(String compensationErrorHandler) { this.compensationErrorHandler = compensationErrorHandler; }
     }
 
     public static class TccProperties {
         private boolean enabled = true;
         private Duration defaultTimeout = Duration.ofSeconds(30);
 
+        @NestedConfigurationProperty
+        private TccCompositionProperties composition = new TccCompositionProperties();
+
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
 
         public Duration getDefaultTimeout() { return defaultTimeout; }
         public void setDefaultTimeout(Duration defaultTimeout) { this.defaultTimeout = defaultTimeout; }
+
+        public TccCompositionProperties getComposition() { return composition; }
+        public void setComposition(TccCompositionProperties composition) { this.composition = composition; }
+    }
+
+    public static class TccCompositionProperties {
+        private boolean enabled = true;
+        private CompensationPolicy compensationPolicy = CompensationPolicy.STRICT_SEQUENTIAL;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public CompensationPolicy getCompensationPolicy() { return compensationPolicy; }
+        public void setCompensationPolicy(CompensationPolicy compensationPolicy) { this.compensationPolicy = compensationPolicy; }
     }
 
     public static class PersistenceProperties {
@@ -251,5 +303,59 @@ public class OrchestrationProperties {
 
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
+    }
+
+    public static class BackpressureProperties {
+        private String strategy = "adaptive";
+        private int batchSize = 10;
+
+        @NestedConfigurationProperty
+        private CircuitBreakerProperties circuitBreaker = new CircuitBreakerProperties();
+
+        public String getStrategy() { return strategy; }
+        public void setStrategy(String strategy) { this.strategy = strategy; }
+
+        public int getBatchSize() { return batchSize; }
+        public void setBatchSize(int batchSize) { this.batchSize = batchSize; }
+
+        public CircuitBreakerProperties getCircuitBreaker() { return circuitBreaker; }
+        public void setCircuitBreaker(CircuitBreakerProperties circuitBreaker) { this.circuitBreaker = circuitBreaker; }
+    }
+
+    public static class CircuitBreakerProperties {
+        private int failureThreshold = 5;
+        private Duration recoveryTimeout = Duration.ofSeconds(30);
+        private int halfOpenMaxCalls = 3;
+
+        public int getFailureThreshold() { return failureThreshold; }
+        public void setFailureThreshold(int failureThreshold) { this.failureThreshold = failureThreshold; }
+
+        public Duration getRecoveryTimeout() { return recoveryTimeout; }
+        public void setRecoveryTimeout(Duration recoveryTimeout) { this.recoveryTimeout = recoveryTimeout; }
+
+        public int getHalfOpenMaxCalls() { return halfOpenMaxCalls; }
+        public void setHalfOpenMaxCalls(int halfOpenMaxCalls) { this.halfOpenMaxCalls = halfOpenMaxCalls; }
+    }
+
+    public static class ValidationProperties {
+        private boolean enabled = true;
+        private boolean failOnWarning = false;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public boolean isFailOnWarning() { return failOnWarning; }
+        public void setFailOnWarning(boolean failOnWarning) { this.failOnWarning = failOnWarning; }
+    }
+
+    public static class EventSourcingProperties {
+        private int snapshotInterval = 100;
+        private Duration projectionPollInterval = Duration.ofSeconds(5);
+
+        public int getSnapshotInterval() { return snapshotInterval; }
+        public void setSnapshotInterval(int snapshotInterval) { this.snapshotInterval = snapshotInterval; }
+
+        public Duration getProjectionPollInterval() { return projectionPollInterval; }
+        public void setProjectionPollInterval(Duration projectionPollInterval) { this.projectionPollInterval = projectionPollInterval; }
     }
 }

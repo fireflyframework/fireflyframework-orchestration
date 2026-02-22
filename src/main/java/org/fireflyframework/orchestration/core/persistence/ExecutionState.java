@@ -19,6 +19,7 @@ package org.fireflyframework.orchestration.core.persistence;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.StepStatus;
+import org.fireflyframework.orchestration.core.report.ExecutionReport;
 
 import java.time.Instant;
 import java.util.*;
@@ -39,7 +40,8 @@ public record ExecutionState(
         List<List<String>> topologyLayers,
         String failureReason,
         Instant startedAt,
-        Instant updatedAt
+        Instant updatedAt,
+        Optional<ExecutionReport> report
 ) {
     public ExecutionState {
         stepResults = nullSafeCopy(stepResults);
@@ -52,6 +54,7 @@ public record ExecutionState(
         topologyLayers = topologyLayers != null
                 ? topologyLayers.stream().map(List::copyOf).collect(Collectors.toUnmodifiableList())
                 : List.of();
+        report = report != null ? report : Optional.empty();
     }
 
     @SuppressWarnings("unchecked")
@@ -64,17 +67,32 @@ public record ExecutionState(
         return new ExecutionState(correlationId, executionName, pattern, newStatus,
                 stepResults, stepStatuses, stepAttempts, stepLatenciesMs,
                 variables, headers, idempotencyKeys, topologyLayers,
-                failureReason, startedAt, Instant.now());
+                failureReason, startedAt, Instant.now(), report);
     }
 
     public ExecutionState withFailure(String reason) {
         return new ExecutionState(correlationId, executionName, pattern, ExecutionStatus.FAILED,
                 stepResults, stepStatuses, stepAttempts, stepLatenciesMs,
                 variables, headers, idempotencyKeys, topologyLayers,
-                reason, startedAt, Instant.now());
+                reason, startedAt, Instant.now(), report);
+    }
+
+    public ExecutionState withReport(ExecutionReport executionReport) {
+        return new ExecutionState(correlationId, executionName, pattern, status,
+                stepResults, stepStatuses, stepAttempts, stepLatenciesMs,
+                variables, headers, idempotencyKeys, topologyLayers,
+                failureReason, startedAt, updatedAt, Optional.ofNullable(executionReport));
     }
 
     public boolean isTerminal() {
         return status != null && status.isTerminal();
+    }
+
+    public boolean isSuccess() {
+        return status == ExecutionStatus.COMPLETED || status == ExecutionStatus.CONFIRMED;
+    }
+
+    public boolean isFailed() {
+        return status == ExecutionStatus.FAILED;
     }
 }

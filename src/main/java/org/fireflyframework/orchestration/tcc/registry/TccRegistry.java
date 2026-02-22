@@ -18,6 +18,8 @@ package org.fireflyframework.orchestration.tcc.registry;
 
 import org.fireflyframework.orchestration.core.exception.DuplicateDefinitionException;
 import org.fireflyframework.orchestration.core.exception.ExecutionNotFoundException;
+import org.fireflyframework.orchestration.core.validation.OrchestrationValidator;
+import org.fireflyframework.orchestration.core.validation.ValidationIssue;
 import org.fireflyframework.orchestration.tcc.annotation.*;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.context.ApplicationContext;
@@ -34,11 +36,17 @@ import java.util.concurrent.ConcurrentHashMap;
 public class TccRegistry {
 
     private final ApplicationContext applicationContext;
+    private final OrchestrationValidator validator;
     private final Map<String, TccDefinition> tccDefinitions = new ConcurrentHashMap<>();
     private volatile boolean scanned = false;
 
     public TccRegistry(ApplicationContext applicationContext) {
+        this(applicationContext, null);
+    }
+
+    public TccRegistry(ApplicationContext applicationContext, OrchestrationValidator validator) {
         this.applicationContext = applicationContext;
+        this.validator = validator;
     }
 
     public TccDefinition getTcc(String name) {
@@ -59,6 +67,11 @@ public class TccRegistry {
     }
 
     public void register(TccDefinition definition) {
+        if (validator != null) {
+            List<ValidationIssue> issues = validator.validateTcc(definition);
+            validator.validateAndThrow(issues);
+        }
+
         if (tccDefinitions.putIfAbsent(definition.name, definition) != null) {
             throw new DuplicateDefinitionException("tcc '" + definition.name + "'");
         }
@@ -84,6 +97,11 @@ public class TccRegistry {
             // Scan lifecycle callback methods
             tccDef.onTccCompleteMethods = findAnnotatedMethods(targetClass, OnTccComplete.class);
             tccDef.onTccErrorMethods = findAnnotatedMethods(targetClass, OnTccError.class);
+
+            if (validator != null) {
+                List<ValidationIssue> issues = validator.validateTcc(tccDef);
+                validator.validateAndThrow(issues);
+            }
 
             tccDefinitions.putIfAbsent(tccAnn.name(), tccDef);
         }

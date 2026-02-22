@@ -18,7 +18,9 @@ package org.fireflyframework.orchestration.config;
 
 import io.micrometer.core.instrument.MeterRegistry;
 import org.fireflyframework.orchestration.core.observability.OrchestrationMetrics;
+import org.fireflyframework.orchestration.core.observability.OrchestrationMetricsEndpoint;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.actuate.endpoint.annotation.Endpoint;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -30,7 +32,8 @@ import org.springframework.context.annotation.Bean;
  * Auto-configuration for Micrometer metrics integration.
  *
  * <p>Activated when Micrometer is on the classpath and a {@code MeterRegistry}
- * bean is available.
+ * bean is available. Optionally registers an Actuator endpoint when
+ * {@code spring-boot-starter-actuator} is present.
  */
 @Slf4j
 @AutoConfiguration(after = OrchestrationAutoConfiguration.class)
@@ -44,5 +47,13 @@ public class OrchestrationMetricsAutoConfiguration {
     public OrchestrationMetrics orchestrationMetrics(MeterRegistry meterRegistry) {
         log.info("[orchestration] Metrics collection initialized");
         return new OrchestrationMetrics(meterRegistry);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnClass(Endpoint.class)
+    public OrchestrationMetricsEndpoint orchestrationMetricsEndpoint(MeterRegistry meterRegistry) {
+        log.info("[orchestration] Metrics actuator endpoint registered");
+        return new OrchestrationMetricsEndpoint(meterRegistry);
     }
 }
