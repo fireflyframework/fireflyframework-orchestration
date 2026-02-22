@@ -122,6 +122,17 @@ public class WorkflowRegistry {
             String workflowId = StringUtils.hasText(wfAnn.id()) ? wfAnn.id() : targetClass.getSimpleName();
             String name = StringUtils.hasText(wfAnn.name()) ? wfAnn.name() : workflowId;
 
+            // Build a map of @CompensationStep methods: compensates stepId -> method
+            Map<String, Method> compensationMethods = new HashMap<>();
+            for (Method m : targetClass.getDeclaredMethods()) {
+                CompensationStep compAnn = m.getAnnotation(CompensationStep.class);
+                if (compAnn != null) {
+                    compensationMethods.put(compAnn.compensates(), m);
+                    log.debug("[workflow-registry] Found @CompensationStep '{}' compensating step '{}'",
+                            m.getName(), compAnn.compensates());
+                }
+            }
+
             // Scan @WorkflowStep methods
             List<WorkflowStepDefinition> steps = new ArrayList<>();
             for (Method m : targetClass.getMethods()) {
@@ -147,14 +158,45 @@ public class WorkflowRegistry {
                 long waitForTimerDelayMs = timerAnn != null ? timerAnn.delayMs() : 0;
                 String waitForTimerId = timerAnn != null && !timerAnn.timerId().isBlank() ? timerAnn.timerId() : null;
 
+                // Scan for @WaitForAll
+                WaitForAll waitForAllAnn = m.getAnnotation(WaitForAll.class);
+                List<WaitForSignal> waitForAllSignals = waitForAllAnn != null
+                        ? List.of(waitForAllAnn.signals()) : List.of();
+                List<WaitForTimer> waitForAllTimers = waitForAllAnn != null
+                        ? List.of(waitForAllAnn.timers()) : List.of();
+
+                // Scan for @WaitForAny
+                WaitForAny waitForAnyAnn = m.getAnnotation(WaitForAny.class);
+                List<WaitForSignal> waitForAnySignals = waitForAnyAnn != null
+                        ? List.of(waitForAnyAnn.signals()) : List.of();
+                List<WaitForTimer> waitForAnyTimers = waitForAnyAnn != null
+                        ? List.of(waitForAnyAnn.timers()) : List.of();
+
+                // Scan for @ChildWorkflow
+                ChildWorkflow childAnn = m.getAnnotation(ChildWorkflow.class);
+                String childWorkflowId = childAnn != null ? childAnn.workflowId() : null;
+                boolean childWaitForCompletion = childAnn != null && childAnn.waitForCompletion();
+                long childTimeoutMs = childAnn != null ? childAnn.timeoutMs() : 0;
+
+                // Resolve compensation: prefer @CompensationStep annotation, fall back to @WorkflowStep.compensationMethod
+                boolean compensatable = stepAnn.compensatable();
+                String compensationMethodName = stepAnn.compensationMethod();
+                Method externalComp = compensationMethods.get(stepId);
+                if (externalComp != null) {
+                    compensatable = true;
+                    compensationMethodName = externalComp.getName();
+                }
+
                 WorkflowStepDefinition stepDef = new WorkflowStepDefinition(
                         stepId, stepName, stepAnn.description(),
                         List.of(stepAnn.dependsOn()), 0,
                         stepAnn.outputEventType(),
                         stepAnn.timeoutMs(), retryPolicy, stepAnn.condition(),
-                        stepAnn.async(), stepAnn.compensatable(), stepAnn.compensationMethod(),
+                        stepAnn.async(), compensatable, compensationMethodName,
                         bean, invokeMethod,
-                        waitForSignal, signalTimeoutMs, waitForTimerDelayMs, waitForTimerId);
+                        waitForSignal, signalTimeoutMs, waitForTimerDelayMs, waitForTimerId,
+                        waitForAllSignals, waitForAllTimers, waitForAnySignals, waitForAnyTimers,
+                        childWorkflowId, childWaitForCompletion, childTimeoutMs);
 
                 steps.add(stepDef);
             }
@@ -169,6 +211,17 @@ public class WorkflowRegistry {
             List<Method> onWorkflowCompleteMethods = findAnnotatedMethods(targetClass, OnWorkflowComplete.class);
             List<Method> onWorkflowErrorMethods = findAnnotatedMethods(targetClass, OnWorkflowError.class);
 
+            // Scan @WorkflowQuery methods (standalone query handlers, not steps)
+            Map<String, Method> queryMethods = new HashMap<>();
+            for (Method m : targetClass.getDeclaredMethods()) {
+                WorkflowQuery queryAnn = m.getAnnotation(WorkflowQuery.class);
+                if (queryAnn != null) {
+                    queryMethods.put(queryAnn.value(), m);
+                    log.debug("[workflow-registry] Found @WorkflowQuery '{}' on method '{}'",
+                            queryAnn.value(), m.getName());
+                }
+            }
+
             RetryPolicy wfRetryPolicy = wfAnn.maxRetries() > 0
                     ? new RetryPolicy(wfAnn.maxRetries(), Duration.ofMillis(wfAnn.retryDelayMs()),
                             Duration.ofMinutes(5), 2.0, 0.0, new String[]{})
@@ -179,7 +232,8 @@ public class WorkflowRegistry {
                     List.copyOf(steps), wfAnn.triggerMode(), wfAnn.triggerEventType(),
                     wfAnn.timeoutMs(), wfRetryPolicy, bean,
                     onStepCompleteMethods, onWorkflowCompleteMethods, onWorkflowErrorMethods,
-                    wfAnn.publishEvents(), wfAnn.layerConcurrency());
+                    wfAnn.publishEvents(), wfAnn.layerConcurrency(),
+                    Map.copyOf(queryMethods));
 
             TopologyBuilder.validate(wfDef.steps(),
                     WorkflowStepDefinition::stepId,

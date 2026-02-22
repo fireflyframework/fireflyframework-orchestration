@@ -27,6 +27,9 @@ import org.fireflyframework.orchestration.core.observability.OrchestrationEvents
 import org.fireflyframework.orchestration.core.step.StepInvoker;
 import org.fireflyframework.orchestration.core.topology.TopologyBuilder;
 import org.fireflyframework.orchestration.workflow.annotation.OnStepComplete;
+import org.fireflyframework.orchestration.workflow.annotation.WaitForSignal;
+import org.fireflyframework.orchestration.workflow.annotation.WaitForTimer;
+import org.fireflyframework.orchestration.workflow.child.ChildWorkflowService;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowDefinition;
 import org.fireflyframework.orchestration.workflow.registry.WorkflowStepDefinition;
 import org.fireflyframework.orchestration.workflow.signal.SignalService;
@@ -58,23 +61,33 @@ public class WorkflowExecutor {
     private final SignalService signalService;
     private final TimerService timerService;
     private final ExecutionPersistenceProvider persistence;
+    private final ChildWorkflowService childWorkflowService;
 
     public WorkflowExecutor(StepInvoker stepInvoker, OrchestrationEvents events,
                              OrchestrationEventPublisher eventPublisher,
                              SignalService signalService, TimerService timerService) {
-        this(stepInvoker, events, eventPublisher, signalService, timerService, null);
+        this(stepInvoker, events, eventPublisher, signalService, timerService, null, null);
     }
 
     public WorkflowExecutor(StepInvoker stepInvoker, OrchestrationEvents events,
                              OrchestrationEventPublisher eventPublisher,
                              SignalService signalService, TimerService timerService,
                              ExecutionPersistenceProvider persistence) {
+        this(stepInvoker, events, eventPublisher, signalService, timerService, persistence, null);
+    }
+
+    public WorkflowExecutor(StepInvoker stepInvoker, OrchestrationEvents events,
+                             OrchestrationEventPublisher eventPublisher,
+                             SignalService signalService, TimerService timerService,
+                             ExecutionPersistenceProvider persistence,
+                             ChildWorkflowService childWorkflowService) {
         this.stepInvoker = Objects.requireNonNull(stepInvoker, "stepInvoker");
         this.events = events;
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
         this.signalService = signalService;
         this.timerService = timerService;
         this.persistence = persistence;
+        this.childWorkflowService = childWorkflowService;
     }
 
     public Mono<ExecutionContext> execute(WorkflowDefinition definition, ExecutionContext ctx) {
@@ -172,6 +185,11 @@ public class WorkflowExecutor {
                     ctx.setStepStatus(stepId, StepStatus.RUNNING);
                     ctx.markStepStarted(stepId);
 
+                    // ── Child workflow execution ──────────────────────────────
+                    if (stepDef.hasChildWorkflow() && childWorkflowService != null) {
+                        return executeChildWorkflowStep(def, ctx, stepId, stepDef);
+                    }
+
                     // Build the signal gate (waits for external signal before step execution)
                     Mono<Object> preStepSignal = Mono.just(new Object());
                     if (stepDef.waitForSignal() != null && signalService != null) {
@@ -196,6 +214,18 @@ public class WorkflowExecutor {
                         }
                     }
 
+                    // ── WaitForAll gate ───────────────────────────────────────
+                    Mono<Void> waitForAllGate = Mono.empty();
+                    if (stepDef.hasWaitForAll() && signalService != null && timerService != null) {
+                        waitForAllGate = buildWaitForAllGate(ctx, stepDef);
+                    }
+
+                    // ── WaitForAny gate ───────────────────────────────────────
+                    Mono<Void> waitForAnyGate = Mono.empty();
+                    if (stepDef.hasWaitForAny() && signalService != null && timerService != null) {
+                        waitForAnyGate = buildWaitForAnyGate(ctx, stepDef);
+                    }
+
                     Object input = ctx.getVariables();
                     long timeout = stepDef.timeoutMs() > 0 ? stepDef.timeoutMs() : def.timeoutMs();
                     RetryPolicy effectiveRetry = stepDef.retryPolicy();
@@ -210,6 +240,8 @@ public class WorkflowExecutor {
                     // Build the step invocation chain
                     Mono<Object> stepInvocation = preStepSignal
                             .then(preStepTimer)
+                            .then(waitForAllGate)
+                            .then(waitForAnyGate)
                             .then(Mono.defer(() -> stepInvoker.attemptCall(stepDef.bean(), stepDef.method(), input, ctx,
                                     timeout, retries, backoff, jitter, jitterFactor, stepId, false)));
 
@@ -287,6 +319,113 @@ public class WorkflowExecutor {
                 })
                 .orElseGet(() -> Mono.error(new StepExecutionException(
                         stepId, "Step not found in workflow definition")));
+    }
+
+    /**
+     * Build a gate that waits for ALL specified signals and timers to complete.
+     * Uses {@code Mono.when()} to combine all signal and timer monos.
+     */
+    private Mono<Void> buildWaitForAllGate(ExecutionContext ctx, WorkflowStepDefinition stepDef) {
+        List<Mono<Void>> allMonos = new ArrayList<>();
+
+        for (WaitForSignal sig : stepDef.waitForAllSignals()) {
+            Mono<Object> signalWait = signalService.waitForSignal(ctx.getCorrelationId(), sig.value())
+                    .doOnNext(payload -> ctx.putVariable("signal." + sig.value(), payload));
+            if (sig.timeoutMs() > 0) {
+                signalWait = signalWait.timeout(Duration.ofMillis(sig.timeoutMs()));
+            }
+            allMonos.add(signalWait.then());
+        }
+
+        for (WaitForTimer timer : stepDef.waitForAllTimers()) {
+            allMonos.add(timerService.delay(Duration.ofMillis(timer.delayMs())));
+        }
+
+        if (allMonos.isEmpty()) {
+            return Mono.empty();
+        }
+        return Mono.when(allMonos);
+    }
+
+    /**
+     * Build a gate that waits for ANY of the specified signals or timers to complete.
+     * Uses {@code Flux.merge().next()} to resume on the first completion.
+     */
+    private Mono<Void> buildWaitForAnyGate(ExecutionContext ctx, WorkflowStepDefinition stepDef) {
+        List<Mono<Object>> anyMonos = new ArrayList<>();
+
+        for (WaitForSignal sig : stepDef.waitForAnySignals()) {
+            Mono<Object> signalWait = signalService.waitForSignal(ctx.getCorrelationId(), sig.value())
+                    .doOnNext(payload -> ctx.putVariable("signal." + sig.value(), payload));
+            if (sig.timeoutMs() > 0) {
+                signalWait = signalWait.timeout(Duration.ofMillis(sig.timeoutMs()));
+            }
+            anyMonos.add(signalWait);
+        }
+
+        for (WaitForTimer timer : stepDef.waitForAnyTimers()) {
+            anyMonos.add(timerService.delay(Duration.ofMillis(timer.delayMs())).thenReturn("timer-fired"));
+        }
+
+        if (anyMonos.isEmpty()) {
+            return Mono.empty();
+        }
+        return Flux.merge(anyMonos).next().then();
+    }
+
+    /**
+     * Execute a step that spawns a child workflow via {@link ChildWorkflowService}.
+     */
+    @SuppressWarnings("unchecked")
+    private Mono<Void> executeChildWorkflowStep(WorkflowDefinition def, ExecutionContext ctx,
+                                                  String stepId, WorkflowStepDefinition stepDef) {
+        Map<String, Object> childInput = new HashMap<>(ctx.getVariables());
+
+        Mono<Object> childMono = childWorkflowService.spawn(
+                        ctx.getCorrelationId(), stepDef.childWorkflowId(), childInput)
+                .map(result -> (Object) result);
+
+        if (stepDef.childTimeoutMs() > 0) {
+            childMono = childMono.timeout(Duration.ofMillis(stepDef.childTimeoutMs()));
+        }
+
+        if (!stepDef.childWaitForCompletion()) {
+            // Fire-and-forget: subscribe in background and proceed
+            childMono.subscribeOn(Schedulers.boundedElastic())
+                    .subscribe(
+                            result -> log.info("[workflow] Child workflow '{}' completed for step '{}'",
+                                    stepDef.childWorkflowId(), stepId),
+                            error -> log.warn("[workflow] Child workflow '{}' failed for step '{}'",
+                                    stepDef.childWorkflowId(), stepId, error));
+            ctx.setStepStatus(stepId, StepStatus.DONE);
+            long latency = Duration.between(ctx.getStepStartedAt(stepId), Instant.now()).toMillis();
+            ctx.setStepLatency(stepId, latency);
+            events.onStepSuccess(def.workflowId(), ctx.getCorrelationId(), stepId,
+                    ctx.getAttempts(stepId), latency);
+            return Mono.empty();
+        }
+
+        // Wait for completion
+        return childMono
+                .flatMap(result -> {
+                    ctx.putResult(stepId, result);
+                    ctx.setStepStatus(stepId, StepStatus.DONE);
+                    if (stepDef.compensatable()) {
+                        ctx.addCompensatableStep(stepId);
+                    }
+                    long latency = Duration.between(ctx.getStepStartedAt(stepId), Instant.now()).toMillis();
+                    ctx.setStepLatency(stepId, latency);
+                    events.onStepSuccess(def.workflowId(), ctx.getCorrelationId(), stepId,
+                            ctx.getAttempts(stepId), latency);
+                    return saveCheckpoint(def.workflowId(), ctx).thenReturn(result);
+                })
+                .onErrorResume(error -> {
+                    ctx.setStepStatus(stepId, StepStatus.FAILED);
+                    events.onStepFailed(def.workflowId(), ctx.getCorrelationId(), stepId,
+                            error, ctx.getAttempts(stepId));
+                    return Mono.error(error);
+                })
+                .then();
     }
 
     private Mono<Void> saveCheckpoint(String workflowId, ExecutionContext ctx) {
