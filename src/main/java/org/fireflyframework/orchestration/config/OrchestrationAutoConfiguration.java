@@ -31,6 +31,7 @@ import org.fireflyframework.orchestration.core.recovery.RecoveryService;
 import org.fireflyframework.orchestration.core.scheduling.OrchestrationScheduler;
 import org.fireflyframework.orchestration.core.scheduling.SchedulingPostProcessor;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
+import org.fireflyframework.orchestration.core.validation.OrchestrationValidator;
 import org.fireflyframework.orchestration.saga.engine.SagaEngine;
 import org.fireflyframework.orchestration.tcc.engine.TccEngine;
 import org.fireflyframework.orchestration.workflow.engine.WorkflowEngine;
@@ -73,6 +74,14 @@ public class OrchestrationAutoConfiguration {
     @ConditionalOnMissingBean
     public StepInvoker stepInvoker(ArgumentResolver argumentResolver) {
         return new StepInvoker(argumentResolver);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "firefly.orchestration.validation.enabled", havingValue = "true", matchIfMissing = true)
+    public OrchestrationValidator orchestrationValidator() {
+        log.info("[orchestration] Orchestration validator initialized");
+        return new OrchestrationValidator();
     }
 
     @Bean

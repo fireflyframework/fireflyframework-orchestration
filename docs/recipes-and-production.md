@@ -11,6 +11,8 @@
 - [§46 Resilience Patterns](#46-resilience-patterns)
 - [§47 Continue-as-New](#47-continue-as-new)
 - [§48 FAQ & Troubleshooting](#48-faq--troubleshooting)
+- [§49 Recipe: Validation & Reporting](#49-recipe-validation--reporting)
+- [§50 Recipe: Event Sourcing](#50-recipe-event-sourcing)
 
 ## 41. Recipe: Composing Patterns
 
@@ -75,6 +77,102 @@ public class PaymentTcc { ... }
 ```
 
 When `OrderSaga.validate` completes, it publishes `PaymentRequested`, which automatically triggers `PaymentTcc` via the `EventGateway`.
+
+### Saga Composition
+
+Use `SagaCompositionBuilder` to compose multiple sagas into a single execution graph with automatic dependency resolution, parallel execution, and data flow:
+
+```java
+SagaComposition composition = SagaCompositionBuilder.create("order-fulfillment")
+        .saga("validate")
+            .sagaName("OrderValidationSaga")
+            .add()
+        .saga("payment")
+            .sagaName("PaymentSaga")
+            .dependsOn("validate")
+            .add()
+        .saga("shipping")
+            .sagaName("ShippingSaga")
+            .dependsOn("payment")
+            .optional(true)
+            .add()
+        .saga("notification")
+            .sagaName("NotificationSaga")
+            .dependsOn("payment")
+            .add()
+        .dataFlow("validate", "orderId", "payment", "orderId")
+        .dataFlow("payment", "paymentId", "shipping", "paymentRef")
+        .build();
+```
+
+Sagas in the same DAG layer (no dependency between them) run in parallel. In this example, `shipping` and `notification` both depend on `payment` so they execute in parallel once `payment` completes. Setting `optional(true)` on `shipping` means its failure does not fail the composition — useful for best-effort side effects like delivery tracking. Data flows use `DataMapping` to pipe result fields from one saga into the inputs of another.
+
+Key classes:
+
+- `SagaComposition` — the composed graph of sagas
+- `SagaCompositionBuilder` — fluent builder for constructing compositions
+- `CompositionContext` — shared context across all sagas in a composition
+- `CompositionDataFlowManager` — manages `DataMapping` pipelines between sagas
+- `CompositionCompensationManager` — coordinates compensation across composed sagas
+- `CompositionValidator` — validates the composition graph (cycles, missing refs)
+- `CompositionVisualizationService` — generates DOT and Mermaid graph output
+- `CompositionTemplateRegistry` — stores reusable composition templates
+
+### TCC Composition
+
+Use `TccCompositionBuilder` to compose multiple TCC transactions into a layered execution graph:
+
+```java
+TccComposition composition = TccCompositionBuilder.create("distributed-payment")
+        .tcc("reserve-inventory")
+            .tccName("InventoryReserveTcc")
+            .add()
+        .tcc("charge-payment")
+            .tccName("PaymentChargeTcc")
+            .add()
+        .tcc("update-ledger")
+            .tccName("LedgerUpdateTcc")
+            .dependsOn("reserve-inventory", "charge-payment")
+            .add()
+        .dataMapping("reserve-inventory", "reservationId", "update-ledger", "reservationRef")
+        .dataMapping("charge-payment", "transactionId", "update-ledger", "paymentRef")
+        .build();
+```
+
+In this example, `reserve-inventory` and `charge-payment` have no dependencies on each other, so they run in parallel. `update-ledger` waits for both to complete. On failure, `TccCompositionCompensationManager` compensates confirmed TCCs in reverse topological order. `TccCompositor` handles layer-by-layer execution of the TCC graph.
+
+Key classes:
+
+- `TccComposition` — the composed graph of TCC transactions
+- `TccCompositionBuilder` — fluent builder for constructing TCC compositions
+- `TccCompositor` — executes the TCC composition layer by layer
+- `TccCompositionResult` — result of the composed TCC execution
+- `TccCompositionContext` — shared context across all TCCs in a composition
+- `TccCompositionCompensationManager` — compensates confirmed TCCs on failure
+- `TccCompositionDataFlowManager` — manages data mappings between TCCs
+- `TccCompositionValidator` — validates the TCC composition graph
+- `TccCompositionVisualizationService` — generates DOT and Mermaid graph output
+
+### Composition Templates
+
+Use `CompositionTemplateRegistry` to register reusable composition templates that can be retrieved and executed by name:
+
+```java
+@Component
+public class MyCompositionTemplates {
+    @Autowired
+    private CompositionTemplateRegistry templateRegistry;
+
+    @PostConstruct
+    void registerTemplates() {
+        templateRegistry.register("order-fulfillment", composition);
+    }
+}
+// Later: retrieve and execute
+SagaComposition composition = templateRegistry.get("order-fulfillment");
+```
+
+This is useful for compositions that are defined once and executed many times with different inputs, such as standard business processes that are shared across services.
 
 ---
 
@@ -287,6 +385,33 @@ public void handleTimeout(ExecutionContext ctx) {
 }
 ```
 
+### Compensation Error Handler Selection
+
+The framework provides several compensation error handler strategies. Select the handler that matches your reliability requirements:
+
+| Handler | Behavior | Use When |
+|---------|----------|----------|
+| `"default"` (`DefaultCompensationErrorHandler`) | Retry with backoff | General-purpose default |
+| `"fail-fast"` (`FailFastErrorHandler`) | Always returns `FAIL_SAGA` | Critical compensations that must not be retried |
+| `"log-and-continue"` (`LogAndContinueErrorHandler`) | Logs WARN, returns `CONTINUE` | Best-effort compensations |
+| `"retry"` (`RetryWithBackoffErrorHandler`) | Configurable retry with backoff | Transient failures expected |
+| `"robust"` (`CompositeCompensationErrorHandler`) | Chains retry then log-and-continue | Production systems |
+
+Configure globally via application properties:
+
+```yaml
+firefly:
+  orchestration:
+    saga:
+      compensation-error-handler: robust
+```
+
+Or resolve programmatically:
+
+```java
+CompensationErrorHandler handler = CompensationErrorHandlerFactory.getHandler("robust");
+```
+
 ---
 
 ## 44. Recipe: Event-Driven Architecture
@@ -440,6 +565,31 @@ For high-throughput environments:
 - Configure `scheduling.thread-pool-size` to control concurrent scheduled executions
 - Use `cpuBound = true` on CPU-intensive steps to schedule them on bounded-elastic
 
+### Backpressure Strategies
+
+The framework provides pluggable backpressure strategies to protect downstream services:
+
+| Strategy | Behavior | Use When |
+|----------|----------|----------|
+| `adaptive` | Dynamic concurrency based on error rate | General-purpose, unknown load |
+| `batched` | Fixed-size batch processing | Rate-limited APIs, bulk operations |
+| `circuit-breaker` | Three-state circuit breaker | Fragile downstream dependencies |
+| `circuit-breaker-aggressive` | Low threshold (2 failures), long recovery (60s) | Very fragile dependencies |
+| `circuit-breaker-conservative` | High threshold (10 failures), short recovery (15s) | Stable dependencies, occasional blips |
+
+Configuration example:
+
+```yaml
+firefly:
+  orchestration:
+    backpressure:
+      strategy: circuit-breaker
+      circuit-breaker:
+        failure-threshold: 3
+        recovery-timeout: 45s
+        half-open-max-calls: 2
+```
+
 ---
 
 ## 47. Continue-as-New
@@ -576,6 +726,127 @@ enum StepStatus {
 ```
 
 Helper methods: `isTerminal()`, `isActive()`, `isSuccessful()`
+
+---
+
+## 49. Recipe: Validation & Reporting
+
+### Validating Orchestration Definitions
+
+Use `OrchestrationValidator` to validate saga, TCC, and workflow definitions before execution. Validation catches configuration errors early — duplicate step IDs, missing compensations, cycle detection, and more.
+
+```java
+OrchestrationValidator validator = new OrchestrationValidator();
+List<ValidationIssue> issues = validator.validateSaga(sagaDef);
+validator.validateAndThrow(issues); // throws if ERROR-level issues exist
+```
+
+Example validation output:
+
+```
+[validation] WARNING: Step has no compensation method defined at saga.order-processing.step.notify
+[validation] ERROR: Duplicate step ID 'validate' at saga.order-processing.step.validate
+```
+
+WARNING-level issues are informational and do not prevent execution. ERROR-level issues cause `validateAndThrow()` to throw an exception.
+
+Enable automatic validation on startup via configuration:
+
+```yaml
+firefly:
+  orchestration:
+    validation:
+      enabled: true
+```
+
+### Execution Reporting
+
+Every orchestration result includes an optional `ExecutionReport` that provides metrics and per-step details:
+
+```java
+SagaResult result = sagaEngine.execute("OrderSaga", inputs).block();
+ExecutionReport report = result.report().orElseThrow();
+
+// Top-level metrics
+report.isSuccess();           // true/false
+report.stepCount();           // total steps
+report.failedStepCount();     // failed steps
+report.completedStepCount();  // successful steps
+report.totalRetries();        // total retry attempts
+
+// Per-step details
+StepReport stepReport = report.stepReports().get("validate");
+stepReport.status();    // StepStatus.DONE
+stepReport.attempts();  // 1
+stepReport.latency();   // Duration
+```
+
+Execution reporting works the same across all patterns:
+
+- **Saga:** `sagaResult.report()`
+- **TCC:** `tccResult.report()`
+- **Workflow:** `executionState.report()`
+
+---
+
+## 50. Recipe: Event Sourcing
+
+### Setup
+
+Configure the `EventSourcedPersistenceProvider` to store execution state as an append-only event log instead of mutable snapshots:
+
+```java
+@Bean
+public ExecutionPersistenceProvider persistenceProvider(EventStore eventStore, ObjectMapper mapper) {
+    return new EventSourcedPersistenceProvider(eventStore, mapper);
+}
+```
+
+Or enable via configuration:
+
+```yaml
+firefly:
+  orchestration:
+    persistence:
+      provider: event-sourced
+```
+
+### Querying Execution History
+
+The event-sourced provider includes an `OrchestrationProjection` for querying materialized views of execution history:
+
+```java
+EventSourcedPersistenceProvider provider = ...;
+OrchestrationProjection projection = provider.getProjection();
+
+// Find all failed executions
+List<ExecutionSummary> failed = projection.findByStatus(ExecutionStatus.FAILED);
+
+// Find all saga executions
+List<ExecutionSummary> sagas = projection.findByPattern(ExecutionPattern.SAGA);
+
+// Get specific execution summary
+Optional<ExecutionSummary> summary = projection.getExecutionSummary(correlationId);
+```
+
+### Snapshot Configuration
+
+Snapshots reduce projection rebuild time by periodically capturing the current state:
+
+```yaml
+firefly:
+  orchestration:
+    eventsourcing:
+      snapshot-interval: 100     # events between snapshots
+      projection-poll-interval: 5s
+    persistence:
+      provider: event-sourced
+```
+
+**Important notes:**
+
+- Events are immutable — `cleanup()` is a no-op in event-sourced mode.
+- `findInFlight()` and `findStale()` are not efficiently supported in event-sourced mode. Use the projection queries instead.
 
 ---
 

@@ -23,6 +23,8 @@ import org.fireflyframework.orchestration.core.event.OrchestrationEvent;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
+import org.fireflyframework.orchestration.core.report.ExecutionReport;
+import org.fireflyframework.orchestration.core.report.ExecutionReportBuilder;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.observability.OrchestrationTracer;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
@@ -112,15 +114,24 @@ public class TccEngine {
         return persistInitialState(tcc, finalCtx)
                 .then(eventPublisher.publish(OrchestrationEvent.executionStarted(
                         tcc.name, finalCtx.getCorrelationId(), ExecutionPattern.TCC)))
+                .then(Mono.fromRunnable(() -> events.onStart(tcc.name, finalCtx.getCorrelationId(), ExecutionPattern.TCC)))
                 .then(execution)
                 .flatMap(result -> handleResult(result, tcc, inputMap))
                 .onErrorResume(err -> {
                     log.error("[tcc] Unexpected error executing TCC '{}': {}", tcc.name, err.getMessage(), err);
-                    return persistFinalState(finalCtx, ExecutionStatus.FAILED)
-                            .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
-                                    tcc.name, finalCtx.getCorrelationId(), ExecutionPattern.TCC, ExecutionStatus.FAILED)))
-                            .then(Mono.just(TccResult.failed(tcc.name, finalCtx,
-                                    null, null, err, Map.of())));
+                    long durationMs = Duration.between(finalCtx.getStartedAt(), Instant.now()).toMillis();
+                    events.onCompleted(tcc.name, finalCtx.getCorrelationId(), ExecutionPattern.TCC, false, durationMs);
+                    return invokeTccErrorCallbacks(tcc, finalCtx, err)
+                            .then(Mono.defer(() -> {
+                                ExecutionReport failedReport = ExecutionReportBuilder.fromContext(
+                                        finalCtx, ExecutionStatus.FAILED, err.getMessage());
+                                TccResult failedResult = TccResult.failed(tcc.name, finalCtx,
+                                        null, null, err, Map.of());
+                                return persistFinalState(finalCtx, ExecutionStatus.FAILED, err.getMessage(), failedReport)
+                                        .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                                tcc.name, finalCtx.getCorrelationId(), ExecutionPattern.TCC, ExecutionStatus.FAILED)))
+                                        .thenReturn(failedResult.withReport(failedReport));
+                            }));
                 });
     }
 
@@ -151,27 +162,52 @@ public class TccEngine {
             }
         }
 
-        Mono<Void> persist = persistFinalState(ctx, finalStatus);
         // Only DLQ truly failed transactions — CANCELED is controlled rollback, not a failure
         Mono<Void> dlq = (finalStatus == ExecutionStatus.FAILED) ? saveToDlq(tcc.name, ctx, result, finalStatus, inputMap) : Mono.empty();
-        Mono<Void> publishCompleted = eventPublisher.publish(OrchestrationEvent.executionCompleted(
-                tcc.name, ctx.getCorrelationId(), ExecutionPattern.TCC, finalStatus));
+
+        Mono<Void> errorCallbacks = Mono.empty();
+        if (finalStatus == ExecutionStatus.FAILED) {
+            errorCallbacks = invokeTccErrorCallbacks(tcc, ctx, result.getFailureError());
+        }
+
+        // For FAILED status, defer persist/publish until after suppress check
+        if (finalStatus == ExecutionStatus.FAILED) {
+            final TccResult failedTccResult = tccResult;
+            return dlq.then(errorCallbacks)
+                    .then(Mono.defer(() -> {
+                        if (result.getFailureError() != null && shouldSuppressError(tcc, result.getFailureError())) {
+                            TccResult suppressed = TccResult.confirmed(tcc.name, ctx, result.getParticipantOutcomes());
+                            ExecutionReport suppressedReport = ExecutionReportBuilder.fromContext(ctx, ExecutionStatus.CONFIRMED, null);
+                            return persistFinalState(ctx, ExecutionStatus.CONFIRMED, null, suppressedReport)
+                                    .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                            tcc.name, ctx.getCorrelationId(), ExecutionPattern.TCC, ExecutionStatus.CONFIRMED)))
+                                    .thenReturn(suppressed.withReport(suppressedReport));
+                        }
+                        String failureReason = result.getFailureError() != null ? result.getFailureError().getMessage() : null;
+                        ExecutionReport failedReport = ExecutionReportBuilder.fromContext(ctx, ExecutionStatus.FAILED, failureReason);
+                        return persistFinalState(ctx, ExecutionStatus.FAILED, failureReason, failedReport)
+                                .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                        tcc.name, ctx.getCorrelationId(), ExecutionPattern.TCC, ExecutionStatus.FAILED)))
+                                .thenReturn(failedTccResult.withReport(failedReport));
+                    }));
+        }
+
+        // Non-FAILED status (CONFIRMED or CANCELED): persist and publish immediately
+        String failureReason = result.getFailureError() != null ? result.getFailureError().getMessage() : null;
+        ExecutionReport report = ExecutionReportBuilder.fromContext(ctx, finalStatus, failureReason);
+        tccResult = tccResult.withReport(report);
 
         Mono<Void> callbacks = Mono.empty();
         if (finalStatus == ExecutionStatus.CONFIRMED) {
             callbacks = invokeTccCompleteCallbacks(tcc, ctx, tccResult);
-        } else if (finalStatus == ExecutionStatus.FAILED) {
-            callbacks = invokeTccErrorCallbacks(tcc, ctx, result.getFailureError());
         }
 
-        return persist.then(dlq).then(publishCompleted).then(callbacks)
-                .then(Mono.defer(() -> {
-                    if (finalStatus == ExecutionStatus.FAILED && result.getFailureError() != null
-                            && shouldSuppressError(tcc, result.getFailureError())) {
-                        return Mono.just(TccResult.confirmed(tcc.name, ctx, result.getParticipantOutcomes()));
-                    }
-                    return Mono.just(tccResult);
-                }));
+        final TccResult finalTccResult = tccResult;
+        return persistFinalState(ctx, finalStatus, failureReason, report)
+                .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                        tcc.name, ctx.getCorrelationId(), ExecutionPattern.TCC, finalStatus)))
+                .then(callbacks)
+                .thenReturn(finalTccResult);
     }
 
     private Mono<Void> saveToDlq(String tccName, ExecutionContext ctx,
@@ -194,7 +230,8 @@ public class TccEngine {
         ExecutionState state = new ExecutionState(
                 ctx.getCorrelationId(), tcc.name, ExecutionPattern.TCC,
                 ExecutionStatus.TRYING, Map.of(), Map.of(), Map.of(), Map.of(),
-                Map.of(), Map.of(), Set.of(), List.of(), null, ctx.getStartedAt(), Instant.now());
+                Map.of(), Map.of(), Set.of(), List.of(), null, ctx.getStartedAt(), Instant.now(),
+                Optional.empty());
         return persistence.save(state)
                 .onErrorResume(err -> {
                     log.warn("[tcc] Failed to persist initial state: {}", ctx.getCorrelationId(), err);
@@ -202,7 +239,8 @@ public class TccEngine {
                 });
     }
 
-    private Mono<Void> persistFinalState(ExecutionContext ctx, ExecutionStatus status) {
+    private Mono<Void> persistFinalState(ExecutionContext ctx, ExecutionStatus status,
+                                          String failureReason, ExecutionReport report) {
         if (persistence == null) return Mono.empty();
         ExecutionState state = new ExecutionState(
                 ctx.getCorrelationId(), ctx.getExecutionName(), ExecutionPattern.TCC, status,
@@ -210,7 +248,8 @@ public class TccEngine {
                 new HashMap<>(ctx.getStepAttempts()), new HashMap<>(ctx.getStepLatenciesMs()),
                 new HashMap<>(ctx.getVariables()),
                 new HashMap<>(ctx.getHeaders()), Set.copyOf(ctx.getIdempotencyKeys()),
-                List.of(), null, ctx.getStartedAt(), Instant.now());
+                ctx.getTopologyLayers(), failureReason, ctx.getStartedAt(), Instant.now(),
+                Optional.ofNullable(report));
         return persistence.save(state)
                 .onErrorResume(err -> {
                     log.warn("[tcc] Failed to persist final state: {}", ctx.getCorrelationId(), err);

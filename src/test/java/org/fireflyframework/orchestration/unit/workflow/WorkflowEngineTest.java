@@ -135,7 +135,7 @@ class WorkflowEngineTest {
                 org.fireflyframework.orchestration.core.model.ExecutionPattern.WORKFLOW,
                 ExecutionStatus.RUNNING, Map.of(), Map.of(), Map.of(), Map.of(),
                 Map.of(), Map.of(), java.util.Set.of(), List.of(), null,
-                java.time.Instant.now(), java.time.Instant.now());
+                java.time.Instant.now(), java.time.Instant.now(), java.util.Optional.empty());
 
         StepVerifier.create(persistence.save(runningState)
                 .then(engine.cancelWorkflow("cancel-test-id")))

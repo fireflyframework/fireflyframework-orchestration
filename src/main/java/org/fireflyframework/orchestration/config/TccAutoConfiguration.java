@@ -16,15 +16,23 @@
 
 package org.fireflyframework.orchestration.config;
 
+import org.fireflyframework.orchestration.core.backpressure.BackpressureStrategy;
+import org.fireflyframework.orchestration.core.backpressure.BackpressureStrategyFactory;
 import org.fireflyframework.orchestration.core.dlq.DeadLetterService;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.observability.OrchestrationTracer;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
+import org.fireflyframework.orchestration.tcc.composition.TccCompositionCompensationManager;
+import org.fireflyframework.orchestration.tcc.composition.TccCompositionDataFlowManager;
+import org.fireflyframework.orchestration.tcc.composition.TccCompositionValidator;
+import org.fireflyframework.orchestration.tcc.composition.TccCompositionVisualizationService;
+import org.fireflyframework.orchestration.tcc.composition.TccCompositor;
 import org.fireflyframework.orchestration.tcc.engine.TccEngine;
 import org.fireflyframework.orchestration.tcc.engine.TccExecutionOrchestrator;
 import org.fireflyframework.orchestration.tcc.registry.TccRegistry;
+import org.fireflyframework.orchestration.core.validation.OrchestrationValidator;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -45,9 +53,10 @@ public class TccAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public TccRegistry tccRegistry(ApplicationContext applicationContext) {
+    public TccRegistry tccRegistry(ApplicationContext applicationContext,
+                                    ObjectProvider<OrchestrationValidator> validator) {
         log.info("[orchestration] TCC registry initialized");
-        return new TccRegistry(applicationContext);
+        return new TccRegistry(applicationContext, validator.getIfAvailable());
     }
 
     @Bean
@@ -72,5 +81,61 @@ public class TccAutoConfiguration {
         return new TccEngine(registry, events, orchestrator,
                 persistence, dlqService.getIfAvailable(), eventPublisher,
                 tracer.getIfAvailable());
+    }
+
+    // --- TCC Composition beans ---
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "firefly.orchestration.tcc.composition.enabled",
+            havingValue = "true", matchIfMissing = true)
+    public TccCompositionDataFlowManager tccCompositionDataFlowManager() {
+        return new TccCompositionDataFlowManager();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "firefly.orchestration.tcc.composition.enabled",
+            havingValue = "true", matchIfMissing = true)
+    public TccCompositionCompensationManager tccCompositionCompensationManager(
+            TccEngine tccEngine, OrchestrationProperties properties) {
+        return new TccCompositionCompensationManager(tccEngine,
+                properties.getTcc().getComposition().getCompensationPolicy());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "firefly.orchestration.tcc.composition.enabled",
+            havingValue = "true", matchIfMissing = true)
+    public TccCompositor tccCompositor(TccEngine tccEngine,
+                                        OrchestrationEvents events,
+                                        TccCompositionDataFlowManager dataFlowManager,
+                                        TccCompositionCompensationManager compensationManager,
+                                        OrchestrationProperties properties) {
+        BackpressureStrategy backpressure = BackpressureStrategyFactory
+                .getStrategy(properties.getBackpressure().getStrategy())
+                .orElse(null);
+        if (backpressure != null) {
+            log.info("[orchestration] TCC compositor using backpressure strategy: {}",
+                    properties.getBackpressure().getStrategy());
+        }
+        log.info("[orchestration] TCC compositor initialized");
+        return new TccCompositor(tccEngine, events, dataFlowManager, compensationManager, backpressure);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "firefly.orchestration.tcc.composition.enabled",
+            havingValue = "true", matchIfMissing = true)
+    public TccCompositionValidator tccCompositionValidator(TccRegistry tccRegistry) {
+        return new TccCompositionValidator(tccRegistry);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "firefly.orchestration.tcc.composition.enabled",
+            havingValue = "true", matchIfMissing = true)
+    public TccCompositionVisualizationService tccCompositionVisualizationService() {
+        return new TccCompositionVisualizationService();
     }
 }

@@ -24,6 +24,10 @@ import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.persistence.ExecutionState;
+import org.fireflyframework.orchestration.persistence.eventsourced.aggregate.OrchestrationAggregate;
+import org.fireflyframework.orchestration.persistence.eventsourced.event.*;
+import org.fireflyframework.orchestration.persistence.eventsourced.projection.OrchestrationProjection;
+import org.fireflyframework.orchestration.persistence.eventsourced.snapshot.OrchestrationSnapshot;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -31,17 +35,17 @@ import reactor.core.publisher.Mono;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Event-sourced implementation of {@link ExecutionPersistenceProvider}.
  *
  * <p>Persists execution state transitions as domain events in the
  * fireflyframework-eventsourcing EventStore. State is reconstructed by
- * replaying events from the aggregate's event stream.
+ * replaying events via an {@link OrchestrationAggregate}.
  *
- * <p>Each execution state save is appended as a single event containing
- * the serialized state snapshot. The aggregate ID is derived from the
- * correlation ID.
+ * <p>Uses {@link OrchestrationSnapshot} for efficient hydration and
+ * an {@link OrchestrationProjection} for read-side queries.
  */
 @Slf4j
 public class EventSourcedPersistenceProvider implements ExecutionPersistenceProvider {
@@ -51,10 +55,18 @@ public class EventSourcedPersistenceProvider implements ExecutionPersistenceProv
 
     private final EventStore eventStore;
     private final ObjectMapper objectMapper;
+    private final OrchestrationProjection projection;
+    private final Map<String, OrchestrationSnapshot> snapshots = new ConcurrentHashMap<>();
 
     public EventSourcedPersistenceProvider(EventStore eventStore, ObjectMapper objectMapper) {
+        this(eventStore, objectMapper, new OrchestrationProjection());
+    }
+
+    public EventSourcedPersistenceProvider(EventStore eventStore, ObjectMapper objectMapper,
+                                           OrchestrationProjection projection) {
         this.eventStore = Objects.requireNonNull(eventStore, "eventStore");
         this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
+        this.projection = Objects.requireNonNull(projection, "projection");
         log.info("[orchestration] EventSourcedPersistenceProvider initialized");
     }
 
@@ -64,6 +76,17 @@ public class EventSourcedPersistenceProvider implements ExecutionPersistenceProv
         return eventStore.getAggregateVersion(aggregateId, AGGREGATE_TYPE)
                 .defaultIfEmpty(0L)
                 .flatMap(currentVersion -> {
+                    // Emit domain events based on the state
+                    List<OrchestrationDomainEvent> domainEvents = toDomainEvents(state);
+
+                    // Apply domain events to aggregate for projection updates
+                    OrchestrationAggregate aggregate = loadAggregateFromSnapshot(state.correlationId());
+                    for (OrchestrationDomainEvent domainEvent : domainEvents) {
+                        aggregate.raise(domainEvent);
+                        projection.processEvent(domainEvent);
+                    }
+
+                    // Serialize state as event payload
                     Map<String, Object> payload = serializeState(state);
                     if (payload == null) return Mono.empty();
 
@@ -72,8 +95,13 @@ public class EventSourcedPersistenceProvider implements ExecutionPersistenceProv
                     return eventStore.appendEvents(
                             aggregateId, AGGREGATE_TYPE,
                             List.of(event), currentVersion, Map.of())
-                            .then();
+                            .then(Mono.<Void>fromRunnable(() -> {
+                                aggregate.markEventsCommitted();
+                                // Save snapshot for efficient future hydration
+                                snapshots.put(state.correlationId(), OrchestrationSnapshot.from(aggregate));
+                            }));
                 })
+                .then()
                 .doOnSuccess(v -> log.debug("[orchestration] Saved state as event: {}", state.correlationId()))
                 .doOnError(e -> log.error("[orchestration] Failed to save event-sourced state: {}",
                         state.correlationId(), e));
@@ -104,16 +132,28 @@ public class EventSourcedPersistenceProvider implements ExecutionPersistenceProv
 
     @Override
     public Flux<ExecutionState> findByPattern(ExecutionPattern pattern) {
-        // Event-sourced stores don't support efficient cross-aggregate queries
-        // without projections. Return empty and log a warning.
-        log.debug("[orchestration] findByPattern not efficiently supported in event-sourced mode");
-        return Flux.empty();
+        // Use projection for efficient cross-aggregate queries
+        List<OrchestrationProjection.ExecutionSummary> summaries = projection.findByPattern(pattern);
+        if (summaries.isEmpty()) {
+            log.debug("[orchestration] findByPattern via projection found no results for pattern={}", pattern);
+            return Flux.empty();
+        }
+        return Flux.fromIterable(summaries)
+                .flatMap(summary -> findById(summary.correlationId())
+                        .flatMapMany(opt -> opt.map(Flux::just).orElse(Flux.empty())));
     }
 
     @Override
     public Flux<ExecutionState> findByStatus(ExecutionStatus status) {
-        log.debug("[orchestration] findByStatus not efficiently supported in event-sourced mode");
-        return Flux.empty();
+        // Use projection for efficient cross-aggregate queries
+        List<OrchestrationProjection.ExecutionSummary> summaries = projection.findByStatus(status);
+        if (summaries.isEmpty()) {
+            log.debug("[orchestration] findByStatus via projection found no results for status={}", status);
+            return Flux.empty();
+        }
+        return Flux.fromIterable(summaries)
+                .flatMap(summary -> findById(summary.correlationId())
+                        .flatMapMany(opt -> opt.map(Flux::just).orElse(Flux.empty())));
     }
 
     @Override
@@ -130,7 +170,7 @@ public class EventSourcedPersistenceProvider implements ExecutionPersistenceProv
 
     @Override
     public Mono<Long> cleanup(Duration olderThan) {
-        // Events are immutable in event sourcing — cleanup is a no-op
+        // Events are immutable in event sourcing -- cleanup is a no-op
         log.debug("[orchestration] cleanup is a no-op in event-sourced mode (events are immutable)");
         return Mono.just(0L);
     }
@@ -138,6 +178,54 @@ public class EventSourcedPersistenceProvider implements ExecutionPersistenceProv
     @Override
     public Mono<Boolean> isHealthy() {
         return eventStore.isHealthy();
+    }
+
+    /**
+     * Returns the projection used by this provider for read-side queries.
+     */
+    public OrchestrationProjection getProjection() {
+        return projection;
+    }
+
+    private OrchestrationAggregate loadAggregateFromSnapshot(String correlationId) {
+        OrchestrationSnapshot snapshot = snapshots.get(correlationId);
+        if (snapshot != null) {
+            return snapshot.restore();
+        }
+        return new OrchestrationAggregate();
+    }
+
+    /**
+     * Converts an execution state to domain events representing the state change.
+     */
+    private List<OrchestrationDomainEvent> toDomainEvents(ExecutionState state) {
+        List<OrchestrationDomainEvent> events = new ArrayList<>();
+        Instant now = state.updatedAt() != null ? state.updatedAt() : Instant.now();
+
+        // Determine the appropriate domain event based on the current status
+        if (state.status() != null) {
+            switch (state.status()) {
+                case RUNNING -> events.add(new ExecutionStartedEvent(
+                        state.correlationId(), state.executionName(), state.pattern(), null, now));
+                case COMPLETED -> events.add(new ExecutionCompletedEvent(
+                        state.correlationId(), state.executionName(), state.pattern(), null,
+                        state.startedAt() != null ? Duration.between(state.startedAt(), now) : Duration.ZERO, now));
+                case FAILED -> events.add(new ExecutionFailedEvent(
+                        state.correlationId(), state.executionName(), state.pattern(),
+                        state.failureReason(), null, now));
+                case CANCELLED -> events.add(new ExecutionCancelledEvent(
+                        state.correlationId(), state.failureReason(), state.pattern(), now));
+                case SUSPENDED -> events.add(new ExecutionSuspendedEvent(
+                        state.correlationId(), null, state.pattern(), now));
+                case COMPENSATING -> events.add(new CompensationStartedEvent(
+                        state.correlationId(), state.pattern(), null, now));
+                default -> {
+                    // For other statuses, emit a generic started event
+                }
+            }
+        }
+
+        return events;
     }
 
     private UUID toUUID(String correlationId) {

@@ -46,6 +46,43 @@ All properties are prefixed with `firefly.orchestration`.
 | `firefly.orchestration.tracing.enabled` | `boolean` | `true` | Enable distributed tracing |
 | `firefly.orchestration.resilience.enabled` | `boolean` | `true` | Enable Resilience4j integration |
 
+### Backpressure Properties
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `firefly.orchestration.backpressure.strategy` | `String` | `adaptive` | Strategy name: `adaptive`, `batched`, `circuit-breaker` |
+| `firefly.orchestration.backpressure.batch-size` | `int` | `10` | Batch size for batched strategy |
+| `firefly.orchestration.backpressure.circuit-breaker.failure-threshold` | `int` | `5` | Failures before circuit opens |
+| `firefly.orchestration.backpressure.circuit-breaker.recovery-timeout` | `Duration` | `30s` | Wait before HALF_OPEN transition |
+| `firefly.orchestration.backpressure.circuit-breaker.half-open-max-calls` | `int` | `3` | Max probe calls in HALF_OPEN state |
+
+### Validation Properties
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `firefly.orchestration.validation.enabled` | `boolean` | `true` | Enable definition validation at registration |
+| `firefly.orchestration.validation.fail-on-warning` | `boolean` | `false` | Treat warnings as errors |
+
+### Event Sourcing Properties
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `firefly.orchestration.eventsourcing.snapshot-interval` | `int` | `100` | Events between automatic snapshots |
+| `firefly.orchestration.eventsourcing.projection-poll-interval` | `Duration` | `5s` | Projection polling interval |
+
+### TCC Composition Properties
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `firefly.orchestration.tcc.composition.enabled` | `boolean` | `true` | Enable TCC composition |
+| `firefly.orchestration.tcc.composition.compensation-policy` | `CompensationPolicy` | `STRICT_SEQUENTIAL` | Compensation strategy for compositions |
+
+### Saga Compensation Properties
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `firefly.orchestration.saga.compensation-error-handler` | `String` | `default` | Named handler: `default`, `fail-fast`, `log-and-continue`, `retry`, `robust` |
+
 ### Example: Production Configuration
 
 ```yaml
@@ -54,8 +91,12 @@ firefly:
     saga:
       compensation-policy: RETRY_WITH_BACKOFF
       default-timeout: 2m
+      compensation-error-handler: robust
     tcc:
       default-timeout: 15s
+      composition:
+        enabled: true
+        compensation-policy: STRICT_SEQUENTIAL
     persistence:
       provider: redis
       key-prefix: "prod:orchestration:"
@@ -66,6 +107,19 @@ firefly:
       stale-threshold: 30m
     scheduling:
       thread-pool-size: 8
+    backpressure:
+      strategy: adaptive
+      batch-size: 10
+      circuit-breaker:
+        failure-threshold: 5
+        recovery-timeout: 30s
+        half-open-max-calls: 3
+    validation:
+      enabled: true
+      fail-on-warning: false
+    eventsourcing:
+      snapshot-interval: 100
+      projection-poll-interval: 5s
     metrics:
       enabled: true
     tracing:
@@ -104,6 +158,9 @@ The module's auto-configurations load in a specific order to ensure dependencies
 | `OrchestrationScheduler` | `OrchestrationScheduler` | `@ConditionalOnMissingBean` |
 | `RecoveryService` | `RecoveryService` | Recovery enabled (default: `true`) |
 | `SchedulingPostProcessor` | `SchedulingPostProcessor` | `@ConditionalOnMissingBean` |
+| `BackpressureStrategyFactory` | Static utility | Always available (static registry) |
+| `OrchestrationValidator` | `OrchestrationValidator` | `validation.enabled=true` (default) |
+| `CompensationErrorHandlerFactory` | Static utility | Always available (static registry) |
 
 ### Phase 2: Pattern Engines (after core)
 
@@ -132,9 +189,10 @@ Each enabled pattern creates its registry, orchestrator, and engine:
 |------|------|
 | `SagaRegistry` | `SagaRegistry` |
 | `SagaExecutionOrchestrator` | `SagaExecutionOrchestrator` |
-| `CompensationErrorHandler` | `DefaultCompensationErrorHandler` |
+| `CompensationErrorHandler` | Configurable via `saga.compensation-error-handler` |
 | `SagaCompensator` | `SagaCompensator` |
 | `SagaEngine` | `SagaEngine` |
+| `BackpressureStrategy` | Optional, from `backpressure.strategy` via `BackpressureStrategyFactory` |
 
 **`TccAutoConfiguration`** (when `tcc.enabled=true`):
 
@@ -143,16 +201,27 @@ Each enabled pattern creates its registry, orchestrator, and engine:
 | `TccRegistry` | `TccRegistry` |
 | `TccExecutionOrchestrator` | `TccExecutionOrchestrator` |
 | `TccEngine` | `TccEngine` |
+| `TccCompositor` | `TccCompositor` (when `tcc.composition.enabled=true`) |
+| `TccCompositionCompensationManager` | `TccCompositionCompensationManager` |
+| `TccCompositionDataFlowManager` | `TccCompositionDataFlowManager` |
+| `TccCompositionValidator` | `TccCompositionValidator` |
 
 ### Phase 3: Extensions (after core)
 
 | Auto-Configuration | Bean | Classpath Condition |
 |--------------------|------|---------------------|
 | `OrchestrationMetricsAutoConfiguration` | `OrchestrationMetrics` | `MeterRegistry` on classpath |
+| `OrchestrationMetricsAutoConfiguration` | `OrchestrationMetricsEndpoint` | `MeterRegistry` + Actuator on classpath |
 | `OrchestrationTracingAutoConfiguration` | `OrchestrationTracer` | `ObservationRegistry` on classpath |
 | `OrchestrationResilienceAutoConfiguration` | `ResilienceDecorator` | `CircuitBreakerRegistry` on classpath |
 | `OrchestrationRestAutoConfiguration` | `OrchestrationController`, `DeadLetterController`, `OrchestrationHealthIndicator` | Reactive web application |
 | `EventGatewayAutoConfiguration` | `EventGateway` + initializer | Always (after pattern engines) |
+
+Additional composition beans registered during Phase 3:
+
+- `CompositionValidator` — validates saga composition structures
+- `CompositionVisualizationService` — DOT/Mermaid graph generation
+- `CompositionTemplateRegistry` — reusable composition templates
 
 ### Overriding Beans
 

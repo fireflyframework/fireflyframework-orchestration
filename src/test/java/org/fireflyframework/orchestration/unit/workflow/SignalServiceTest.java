@@ -45,7 +45,8 @@ class SignalServiceTest {
     private void saveRunningWorkflow(String correlationId) {
         var state = new ExecutionState(correlationId, "test-wf", ExecutionPattern.WORKFLOW,
                 ExecutionStatus.RUNNING, Map.of(), Map.of(), Map.of(), Map.of(),
-                Map.of(), Map.of(), Set.of(), List.of(), null, Instant.now(), Instant.now());
+                Map.of(), Map.of(), Set.of(), List.of(), null, Instant.now(), Instant.now(),
+                Optional.empty());
         persistence.save(state).block();
     }
 
@@ -72,7 +73,8 @@ class SignalServiceTest {
     void signal_notDeliveredToTerminalInstance() {
         var state = new ExecutionState("wf-done", "test-wf", ExecutionPattern.WORKFLOW,
                 ExecutionStatus.COMPLETED, Map.of(), Map.of(), Map.of(), Map.of(),
-                Map.of(), Map.of(), Set.of(), List.of(), null, Instant.now(), Instant.now());
+                Map.of(), Map.of(), Set.of(), List.of(), null, Instant.now(), Instant.now(),
+                Optional.empty());
         persistence.save(state).block();
 
         StepVerifier.create(signalService.signal("wf-done", "sig", null))

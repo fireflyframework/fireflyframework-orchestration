@@ -18,6 +18,7 @@ package org.fireflyframework.orchestration.saga.engine;
 
 import org.fireflyframework.orchestration.core.context.ExecutionContext;
 import org.fireflyframework.orchestration.core.model.StepStatus;
+import org.fireflyframework.orchestration.core.report.ExecutionReport;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -37,6 +38,7 @@ public final class SagaResult {
     private final Throwable error;
     private final Map<String, String> headers;
     private final Map<String, StepOutcome> steps;
+    private final ExecutionReport report;
 
     public record StepOutcome(
             StepStatus status, int attempts, long latencyMs,
@@ -45,7 +47,7 @@ public final class SagaResult {
 
     private SagaResult(String sagaName, String correlationId, Instant startedAt, Instant completedAt,
                        boolean success, Throwable error, Map<String, String> headers,
-                       Map<String, StepOutcome> steps) {
+                       Map<String, StepOutcome> steps, ExecutionReport report) {
         this.sagaName = sagaName;
         this.correlationId = correlationId;
         this.startedAt = startedAt;
@@ -54,6 +56,7 @@ public final class SagaResult {
         this.error = error;
         this.headers = headers;
         this.steps = steps;
+        this.report = report;
     }
 
     public String sagaName() { return sagaName; }
@@ -62,9 +65,11 @@ public final class SagaResult {
     public Instant completedAt() { return completedAt; }
     public Duration duration() { return Duration.between(startedAt, completedAt); }
     public boolean isSuccess() { return success; }
+    public boolean isFailed() { return !success; }
     public Optional<Throwable> error() { return Optional.ofNullable(error); }
     public Map<String, String> headers() { return headers; }
     public Map<String, StepOutcome> steps() { return steps; }
+    public Optional<ExecutionReport> report() { return Optional.ofNullable(report); }
 
     public Optional<String> firstErrorStepId() {
         return steps.entrySet().stream()
@@ -105,8 +110,16 @@ public final class SagaResult {
     public static SagaResult failed(String sagaName, String correlationId,
                                       String failedStepId, Throwable error,
                                       Map<String, StepOutcome> steps) {
-        return new SagaResult(sagaName, correlationId, Instant.now(), Instant.now(),
-                false, error, Map.of(), steps != null ? Map.copyOf(steps) : Map.of());
+        Instant now = Instant.now();
+        return new SagaResult(sagaName, correlationId, now, now,
+                false, error, Map.of(), steps != null ? Map.copyOf(steps) : Map.of(), null);
+    }
+
+    public static SagaResult failed(String sagaName, String correlationId,
+                                      Instant startedAt, String failedStepId, Throwable error,
+                                      Map<String, StepOutcome> steps) {
+        return new SagaResult(sagaName, correlationId, startedAt, Instant.now(),
+                false, error, Map.of(), steps != null ? Map.copyOf(steps) : Map.of(), null);
     }
 
     public static SagaResult from(String sagaName, ExecutionContext ctx,
@@ -129,6 +142,14 @@ public final class SagaResult {
         return new SagaResult(sagaName, ctx.getCorrelationId(), started, completed,
                 success, primary,
                 Collections.unmodifiableMap(new LinkedHashMap<>(ctx.getHeaders())),
-                Collections.unmodifiableMap(stepMap));
+                Collections.unmodifiableMap(stepMap), null);
+    }
+
+    /**
+     * Returns a new SagaResult with the given execution report attached.
+     */
+    public SagaResult withReport(ExecutionReport executionReport) {
+        return new SagaResult(sagaName, correlationId, startedAt, completedAt,
+                success, error, headers, steps, executionReport);
     }
 }

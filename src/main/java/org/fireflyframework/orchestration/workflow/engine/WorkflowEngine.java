@@ -26,6 +26,8 @@ import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.StepStatus;
 import org.fireflyframework.orchestration.core.model.TriggerMode;
+import org.fireflyframework.orchestration.core.report.ExecutionReport;
+import org.fireflyframework.orchestration.core.report.ExecutionReportBuilder;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.observability.OrchestrationTracer;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
@@ -103,19 +105,21 @@ public class WorkflowEngine {
                     ctx.getCorrelationId(), workflowId, ExecutionPattern.WORKFLOW,
                     ExecutionStatus.RUNNING, Map.of(), Map.of(), Map.of(), Map.of(),
                     input != null ? input : Map.of(), Map.of(), Set.of(), List.of(),
-                    null, Instant.now(), Instant.now());
-
-            events.onStart(workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW);
+                    null, Instant.now(), Instant.now(), Optional.empty());
 
             // Check if ASYNC trigger mode — execute in background and return immediately
             if (def.triggerMode() == TriggerMode.ASYNC) {
                 return persistence.save(initialState)
                         .then(eventPublisher.publish(OrchestrationEvent.executionStarted(
                                 workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW)))
+                        .then(Mono.fromRunnable(() -> events.onStart(workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW)))
                         .then(Mono.defer(() -> {
                             // Execute the full workflow pipeline in the background
                             tracedExecute(def, ctx)
                                     .flatMap(resultCtx -> {
+                                        long durationMs = Duration.between(ctx.getStartedAt(), Instant.now()).toMillis();
+                                        events.onCompleted(workflowId, ctx.getCorrelationId(),
+                                                ExecutionPattern.WORKFLOW, true, durationMs);
                                         ExecutionState completedState = buildStateFromContext(workflowId, resultCtx, ExecutionStatus.COMPLETED);
                                         return persistence.save(completedState)
                                                 .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
@@ -123,23 +127,24 @@ public class WorkflowEngine {
                                                 .then(invokeWorkflowCompleteCallbacks(def, ctx))
                                                 .thenReturn(completedState);
                                     })
-                                    .onErrorResume(error -> invokeWorkflowErrorCallbacks(def, ctx, error)
-                                            .then(compensateWorkflow(def, ctx))
-                                            .then(saveToDlq(workflowId, ctx, error, input))
-                                            .then(Mono.defer(() -> {
-                                                boolean suppress = shouldSuppressError(def, ctx, error);
-                                                ExecutionStatus status = suppress ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
-                                                ExecutionState finalState = suppress
-                                                        ? buildStateFromContext(workflowId, ctx, ExecutionStatus.COMPLETED)
-                                                        : initialState.withFailure(error.getMessage());
-                                                return persistence.save(finalState)
-                                                        .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
-                                                                workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, status)))
-                                                        .thenReturn(finalState);
-                                            })))
-                                    .doOnSuccess(state -> events.onCompleted(workflowId, ctx.getCorrelationId(),
-                                            ExecutionPattern.WORKFLOW, state.status() == ExecutionStatus.COMPLETED,
-                                            Duration.between(state.startedAt(), Instant.now()).toMillis()))
+                                    .onErrorResume(error -> {
+                                        long durationMs = Duration.between(ctx.getStartedAt(), Instant.now()).toMillis();
+                                        events.onCompleted(workflowId, ctx.getCorrelationId(),
+                                                ExecutionPattern.WORKFLOW, false, durationMs);
+                                        return compensateWorkflow(def, ctx)
+                                                .then(saveToDlq(workflowId, ctx, error, input))
+                                                .then(invokeWorkflowErrorCallbacks(def, ctx, error))
+                                                .then(Mono.defer(() -> {
+                                                    boolean suppress = shouldSuppressError(def, ctx, error);
+                                                    ExecutionStatus status = suppress ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
+                                                    String reason = suppress ? null : error.getMessage();
+                                                    ExecutionState finalState = buildStateFromContext(workflowId, ctx, status, reason);
+                                                    return persistence.save(finalState)
+                                                            .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                                                    workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, status)))
+                                                            .thenReturn(finalState);
+                                                }));
+                                    })
                                     .subscribeOn(Schedulers.boundedElastic())
                                     .subscribe(
                                             state -> log.info("[workflow] Async workflow '{}' completed with status {}",
@@ -156,8 +161,12 @@ public class WorkflowEngine {
             return persistence.save(initialState)
                     .then(eventPublisher.publish(OrchestrationEvent.executionStarted(
                             workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW)))
+                    .then(Mono.fromRunnable(() -> events.onStart(workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW)))
                     .then(tracedExecute(def, ctx))
                     .flatMap(resultCtx -> {
+                        long durationMs = Duration.between(ctx.getStartedAt(), Instant.now()).toMillis();
+                        events.onCompleted(workflowId, ctx.getCorrelationId(),
+                                ExecutionPattern.WORKFLOW, true, durationMs);
                         ExecutionState completedState = buildStateFromContext(workflowId, resultCtx, ExecutionStatus.COMPLETED);
                         return persistence.save(completedState)
                                 .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
@@ -165,23 +174,24 @@ public class WorkflowEngine {
                                 .then(invokeWorkflowCompleteCallbacks(def, ctx))
                                 .thenReturn(completedState);
                     })
-                    .onErrorResume(error -> invokeWorkflowErrorCallbacks(def, ctx, error)
-                            .then(compensateWorkflow(def, ctx))
-                            .then(saveToDlq(workflowId, ctx, error, input))
-                            .then(Mono.defer(() -> {
-                                boolean suppress = shouldSuppressError(def, ctx, error);
-                                ExecutionStatus status = suppress ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
-                                ExecutionState finalState = suppress
-                                        ? buildStateFromContext(workflowId, ctx, ExecutionStatus.COMPLETED)
-                                        : initialState.withFailure(error.getMessage());
-                                return persistence.save(finalState)
-                                        .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
-                                                workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, status)))
-                                        .thenReturn(finalState);
-                            })))
-                    .doOnSuccess(state -> events.onCompleted(workflowId, ctx.getCorrelationId(),
-                            ExecutionPattern.WORKFLOW, state.status() == ExecutionStatus.COMPLETED,
-                            Duration.between(state.startedAt(), Instant.now()).toMillis()));
+                    .onErrorResume(error -> {
+                        long durationMs = Duration.between(ctx.getStartedAt(), Instant.now()).toMillis();
+                        events.onCompleted(workflowId, ctx.getCorrelationId(),
+                                ExecutionPattern.WORKFLOW, false, durationMs);
+                        return compensateWorkflow(def, ctx)
+                                .then(saveToDlq(workflowId, ctx, error, input))
+                                .then(invokeWorkflowErrorCallbacks(def, ctx, error))
+                                .then(Mono.defer(() -> {
+                                    boolean suppress = shouldSuppressError(def, ctx, error);
+                                    ExecutionStatus status = suppress ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
+                                    String reason = suppress ? null : error.getMessage();
+                                    ExecutionState finalState = buildStateFromContext(workflowId, ctx, status, reason);
+                                    return persistence.save(finalState)
+                                            .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                                    workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, status)))
+                                            .thenReturn(finalState);
+                                }));
+                    });
         });
     }
 
@@ -245,16 +255,44 @@ public class WorkflowEngine {
                     state.stepStatuses().forEach(ctx::setStepStatus);
 
                     ExecutionState runningState = state.withStatus(ExecutionStatus.RUNNING);
+                    String workflowId = state.executionName();
                     return persistence.save(runningState)
                             .then(tracedExecute(def, ctx))
                             .flatMap(resultCtx -> {
+                                long durationMs = Duration.between(ctx.getStartedAt(), Instant.now()).toMillis();
+                                events.onCompleted(workflowId, correlationId,
+                                        ExecutionPattern.WORKFLOW, true, durationMs);
                                 ExecutionState completed = buildStateFromContext(
-                                        state.executionName(), resultCtx, ExecutionStatus.COMPLETED);
-                                return persistence.save(completed).thenReturn(completed);
+                                        workflowId, resultCtx, ExecutionStatus.COMPLETED);
+                                return persistence.save(completed)
+                                        .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
+                                                workflowId, correlationId, ExecutionPattern.WORKFLOW,
+                                                ExecutionStatus.COMPLETED)))
+                                        .then(invokeWorkflowCompleteCallbacks(def, ctx))
+                                        .thenReturn(completed);
                             })
                             .onErrorResume(error -> {
-                                ExecutionState failed = runningState.withFailure(error.getMessage());
-                                return persistence.save(failed).thenReturn(failed);
+                                long durationMs = Duration.between(ctx.getStartedAt(), Instant.now()).toMillis();
+                                events.onCompleted(workflowId, correlationId,
+                                        ExecutionPattern.WORKFLOW, false, durationMs);
+                                return compensateWorkflow(def, ctx)
+                                        .then(saveToDlq(workflowId, ctx, error,
+                                                new HashMap<>(state.variables())))
+                                        .then(invokeWorkflowErrorCallbacks(def, ctx, error))
+                                        .then(Mono.defer(() -> {
+                                            boolean suppress = shouldSuppressError(def, ctx, error);
+                                            ExecutionStatus status = suppress
+                                                    ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
+                                            String reason = suppress ? null : error.getMessage();
+                                            ExecutionState finalState = buildStateFromContext(
+                                                    workflowId, ctx, status, reason);
+                                            return persistence.save(finalState)
+                                                    .then(eventPublisher.publish(
+                                                            OrchestrationEvent.executionCompleted(
+                                                                    workflowId, correlationId,
+                                                                    ExecutionPattern.WORKFLOW, status)))
+                                                    .thenReturn(finalState);
+                                        }));
                             });
                 });
     }
@@ -281,7 +319,7 @@ public class WorkflowEngine {
     }
 
     private Mono<Void> saveToDlq(String workflowId, ExecutionContext ctx, Throwable error, Map<String, Object> inputs) {
-        if (dlqService == null) return Mono.empty();
+        if (dlqService == null || error == null) return Mono.empty();
 
         // Find the first FAILED step
         String failedStep = ctx.getStepStatuses().entrySet().stream()
@@ -449,12 +487,18 @@ public class WorkflowEngine {
     }
 
     private ExecutionState buildStateFromContext(String workflowId, ExecutionContext ctx, ExecutionStatus status) {
+        return buildStateFromContext(workflowId, ctx, status, null);
+    }
+
+    private ExecutionState buildStateFromContext(String workflowId, ExecutionContext ctx,
+                                                  ExecutionStatus status, String failureReason) {
+        ExecutionReport report = ExecutionReportBuilder.fromContext(ctx, status, failureReason);
         return new ExecutionState(ctx.getCorrelationId(), workflowId, ExecutionPattern.WORKFLOW, status,
                 new HashMap<>(ctx.getStepResults()), new HashMap<>(ctx.getStepStatuses()),
                 new HashMap<>(ctx.getStepAttempts()), new HashMap<>(ctx.getStepLatenciesMs()),
                 new HashMap<>(ctx.getVariables()),
                 new HashMap<>(ctx.getHeaders()), Set.copyOf(ctx.getIdempotencyKeys()),
-                ctx.getTopologyLayers(), null, ctx.getStartedAt(), Instant.now());
+                ctx.getTopologyLayers(), failureReason, ctx.getStartedAt(), Instant.now(), Optional.of(report));
     }
 
     /**
@@ -507,7 +551,7 @@ public class WorkflowEngine {
         }
 
         Object bean = def.workflowBean();
-        if (bean == null) return Mono.empty();
+        if (bean == null || error == null) return Mono.empty();
 
         List<Mono<Void>> syncInvocations = new ArrayList<>();
 
