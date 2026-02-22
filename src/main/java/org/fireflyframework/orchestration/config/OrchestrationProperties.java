@@ -163,11 +163,28 @@ public class OrchestrationProperties {
         private boolean enabled = true;
         private Duration defaultTimeout = Duration.ofSeconds(30);
 
+        @NestedConfigurationProperty
+        private TccCompositionProperties composition = new TccCompositionProperties();
+
         public boolean isEnabled() { return enabled; }
         public void setEnabled(boolean enabled) { this.enabled = enabled; }
 
         public Duration getDefaultTimeout() { return defaultTimeout; }
         public void setDefaultTimeout(Duration defaultTimeout) { this.defaultTimeout = defaultTimeout; }
+
+        public TccCompositionProperties getComposition() { return composition; }
+        public void setComposition(TccCompositionProperties composition) { this.composition = composition; }
+    }
+
+    public static class TccCompositionProperties {
+        private boolean enabled = true;
+        private CompensationPolicy compensationPolicy = CompensationPolicy.STRICT_SEQUENTIAL;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public CompensationPolicy getCompensationPolicy() { return compensationPolicy; }
+        public void setCompensationPolicy(CompensationPolicy compensationPolicy) { this.compensationPolicy = compensationPolicy; }
     }
 
     public static class PersistenceProperties {

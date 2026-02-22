@@ -22,6 +22,11 @@ import org.fireflyframework.orchestration.core.observability.OrchestrationEvents
 import org.fireflyframework.orchestration.core.observability.OrchestrationTracer;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.core.step.StepInvoker;
+import org.fireflyframework.orchestration.tcc.composition.TccCompositionCompensationManager;
+import org.fireflyframework.orchestration.tcc.composition.TccCompositionDataFlowManager;
+import org.fireflyframework.orchestration.tcc.composition.TccCompositionValidator;
+import org.fireflyframework.orchestration.tcc.composition.TccCompositionVisualizationService;
+import org.fireflyframework.orchestration.tcc.composition.TccCompositor;
 import org.fireflyframework.orchestration.tcc.engine.TccEngine;
 import org.fireflyframework.orchestration.tcc.engine.TccExecutionOrchestrator;
 import org.fireflyframework.orchestration.tcc.registry.TccRegistry;
@@ -72,5 +77,53 @@ public class TccAutoConfiguration {
         return new TccEngine(registry, events, orchestrator,
                 persistence, dlqService.getIfAvailable(), eventPublisher,
                 tracer.getIfAvailable());
+    }
+
+    // --- TCC Composition beans ---
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "firefly.orchestration.tcc.composition.enabled",
+            havingValue = "true", matchIfMissing = true)
+    public TccCompositionDataFlowManager tccCompositionDataFlowManager() {
+        return new TccCompositionDataFlowManager();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "firefly.orchestration.tcc.composition.enabled",
+            havingValue = "true", matchIfMissing = true)
+    public TccCompositionCompensationManager tccCompositionCompensationManager(
+            TccEngine tccEngine, OrchestrationProperties properties) {
+        return new TccCompositionCompensationManager(tccEngine,
+                properties.getTcc().getComposition().getCompensationPolicy());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "firefly.orchestration.tcc.composition.enabled",
+            havingValue = "true", matchIfMissing = true)
+    public TccCompositor tccCompositor(TccEngine tccEngine,
+                                        OrchestrationEvents events,
+                                        TccCompositionDataFlowManager dataFlowManager,
+                                        TccCompositionCompensationManager compensationManager) {
+        log.info("[orchestration] TCC compositor initialized");
+        return new TccCompositor(tccEngine, events, dataFlowManager, compensationManager);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "firefly.orchestration.tcc.composition.enabled",
+            havingValue = "true", matchIfMissing = true)
+    public TccCompositionValidator tccCompositionValidator(TccRegistry tccRegistry) {
+        return new TccCompositionValidator(tccRegistry);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(name = "firefly.orchestration.tcc.composition.enabled",
+            havingValue = "true", matchIfMissing = true)
+    public TccCompositionVisualizationService tccCompositionVisualizationService() {
+        return new TccCompositionVisualizationService();
     }
 }
