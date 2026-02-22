@@ -24,6 +24,8 @@ import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.StepStatus;
+import org.fireflyframework.orchestration.core.report.ExecutionReport;
+import org.fireflyframework.orchestration.core.report.ExecutionReportBuilder;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.observability.OrchestrationTracer;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
@@ -140,6 +142,8 @@ public class SagaEngine {
 
         if (success) {
             SagaResult sagaResult = SagaResult.from(sagaName, ctx, Map.of(), result.getStepErrors(), workSaga.steps.keySet());
+            ExecutionReport report = ExecutionReportBuilder.fromContext(ctx, ExecutionStatus.COMPLETED, null);
+            sagaResult = sagaResult.withReport(report);
             return persistFinalState(ctx, ExecutionStatus.COMPLETED)
                     .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                             sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, ExecutionStatus.COMPLETED)))
@@ -159,13 +163,20 @@ public class SagaEngine {
                     // Check if any error callback has suppressError=true that matches the error
                     Throwable error = result.getStepErrors().values().stream().findFirst().orElse(null);
                     if (error != null && shouldSuppressError(workSaga, error)) {
+                        SagaResult suppressed = SagaResult.from(sagaName, ctx, Map.of(), Map.of(), workSaga.steps.keySet());
+                        ExecutionReport suppressedReport = ExecutionReportBuilder.fromContext(ctx, ExecutionStatus.COMPLETED, null);
+                        suppressed = suppressed.withReport(suppressedReport);
                         return persistFinalState(ctx, ExecutionStatus.COMPLETED)
                                 .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                                         sagaName, ctx.getCorrelationId(), ExecutionPattern.SAGA, ExecutionStatus.COMPLETED)))
-                                .then(Mono.just(SagaResult.from(sagaName, ctx, Map.of(), Map.of(), workSaga.steps.keySet())));
+                                .then(Mono.just(suppressed));
                     }
                     Map<String, Boolean> compensated = extractCompensationFlags(result.getCompletionOrder(), ctx);
-                    return Mono.just(SagaResult.from(sagaName, ctx, compensated, result.getStepErrors(), workSaga.steps.keySet()));
+                    String failureReason = error != null ? error.getMessage() : null;
+                    SagaResult failedResult = SagaResult.from(sagaName, ctx, compensated, result.getStepErrors(), workSaga.steps.keySet());
+                    ExecutionReport failedReport = ExecutionReportBuilder.fromContext(ctx, ExecutionStatus.FAILED, failureReason);
+                    failedResult = failedResult.withReport(failedReport);
+                    return Mono.just(failedResult);
                 }));
     }
 

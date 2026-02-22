@@ -26,6 +26,8 @@ import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.core.model.StepStatus;
 import org.fireflyframework.orchestration.core.model.TriggerMode;
+import org.fireflyframework.orchestration.core.report.ExecutionReport;
+import org.fireflyframework.orchestration.core.report.ExecutionReportBuilder;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.observability.OrchestrationTracer;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
@@ -129,9 +131,15 @@ public class WorkflowEngine {
                                             .then(Mono.defer(() -> {
                                                 boolean suppress = shouldSuppressError(def, ctx, error);
                                                 ExecutionStatus status = suppress ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
-                                                ExecutionState finalState = suppress
-                                                        ? buildStateFromContext(workflowId, ctx, ExecutionStatus.COMPLETED)
-                                                        : initialState.withFailure(error.getMessage());
+                                                ExecutionState finalState;
+                                                if (suppress) {
+                                                    finalState = buildStateFromContext(workflowId, ctx, ExecutionStatus.COMPLETED);
+                                                } else {
+                                                    ExecutionReport failedReport = ExecutionReportBuilder.fromContext(
+                                                            ctx, ExecutionStatus.FAILED, error.getMessage());
+                                                    finalState = initialState.withFailure(error.getMessage())
+                                                            .withReport(failedReport);
+                                                }
                                                 return persistence.save(finalState)
                                                         .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                                                                 workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, status)))
@@ -171,9 +179,15 @@ public class WorkflowEngine {
                             .then(Mono.defer(() -> {
                                 boolean suppress = shouldSuppressError(def, ctx, error);
                                 ExecutionStatus status = suppress ? ExecutionStatus.COMPLETED : ExecutionStatus.FAILED;
-                                ExecutionState finalState = suppress
-                                        ? buildStateFromContext(workflowId, ctx, ExecutionStatus.COMPLETED)
-                                        : initialState.withFailure(error.getMessage());
+                                ExecutionState finalState;
+                                if (suppress) {
+                                    finalState = buildStateFromContext(workflowId, ctx, ExecutionStatus.COMPLETED);
+                                } else {
+                                    ExecutionReport failedReport = ExecutionReportBuilder.fromContext(
+                                            ctx, ExecutionStatus.FAILED, error.getMessage());
+                                    finalState = initialState.withFailure(error.getMessage())
+                                            .withReport(failedReport);
+                                }
                                 return persistence.save(finalState)
                                         .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                                                 workflowId, ctx.getCorrelationId(), ExecutionPattern.WORKFLOW, status)))
@@ -449,12 +463,13 @@ public class WorkflowEngine {
     }
 
     private ExecutionState buildStateFromContext(String workflowId, ExecutionContext ctx, ExecutionStatus status) {
+        ExecutionReport report = ExecutionReportBuilder.fromContext(ctx, status, null);
         return new ExecutionState(ctx.getCorrelationId(), workflowId, ExecutionPattern.WORKFLOW, status,
                 new HashMap<>(ctx.getStepResults()), new HashMap<>(ctx.getStepStatuses()),
                 new HashMap<>(ctx.getStepAttempts()), new HashMap<>(ctx.getStepLatenciesMs()),
                 new HashMap<>(ctx.getVariables()),
                 new HashMap<>(ctx.getHeaders()), Set.copyOf(ctx.getIdempotencyKeys()),
-                ctx.getTopologyLayers(), null, ctx.getStartedAt(), Instant.now(), Optional.empty());
+                ctx.getTopologyLayers(), null, ctx.getStartedAt(), Instant.now(), Optional.of(report));
     }
 
     /**

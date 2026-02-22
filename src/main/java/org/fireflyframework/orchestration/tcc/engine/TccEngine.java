@@ -23,6 +23,8 @@ import org.fireflyframework.orchestration.core.event.OrchestrationEvent;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
+import org.fireflyframework.orchestration.core.report.ExecutionReport;
+import org.fireflyframework.orchestration.core.report.ExecutionReportBuilder;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.core.observability.OrchestrationTracer;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
@@ -119,8 +121,13 @@ public class TccEngine {
                     return persistFinalState(finalCtx, ExecutionStatus.FAILED)
                             .then(eventPublisher.publish(OrchestrationEvent.executionCompleted(
                                     tcc.name, finalCtx.getCorrelationId(), ExecutionPattern.TCC, ExecutionStatus.FAILED)))
-                            .then(Mono.just(TccResult.failed(tcc.name, finalCtx,
-                                    null, null, err, Map.of())));
+                            .then(Mono.defer(() -> {
+                                TccResult failedResult = TccResult.failed(tcc.name, finalCtx,
+                                        null, null, err, Map.of());
+                                ExecutionReport failedReport = ExecutionReportBuilder.fromContext(
+                                        finalCtx, ExecutionStatus.FAILED, err.getMessage());
+                                return Mono.just(failedResult.withReport(failedReport));
+                            }));
                 });
     }
 
@@ -151,6 +158,10 @@ public class TccEngine {
             }
         }
 
+        String failureReason = result.getFailureError() != null ? result.getFailureError().getMessage() : null;
+        ExecutionReport report = ExecutionReportBuilder.fromContext(ctx, finalStatus, failureReason);
+        tccResult = tccResult.withReport(report);
+
         Mono<Void> persist = persistFinalState(ctx, finalStatus);
         // Only DLQ truly failed transactions — CANCELED is controlled rollback, not a failure
         Mono<Void> dlq = (finalStatus == ExecutionStatus.FAILED) ? saveToDlq(tcc.name, ctx, result, finalStatus, inputMap) : Mono.empty();
@@ -164,13 +175,16 @@ public class TccEngine {
             callbacks = invokeTccErrorCallbacks(tcc, ctx, result.getFailureError());
         }
 
+        final TccResult finalTccResult = tccResult;
         return persist.then(dlq).then(publishCompleted).then(callbacks)
                 .then(Mono.defer(() -> {
                     if (finalStatus == ExecutionStatus.FAILED && result.getFailureError() != null
                             && shouldSuppressError(tcc, result.getFailureError())) {
-                        return Mono.just(TccResult.confirmed(tcc.name, ctx, result.getParticipantOutcomes()));
+                        TccResult suppressed = TccResult.confirmed(tcc.name, ctx, result.getParticipantOutcomes());
+                        ExecutionReport suppressedReport = ExecutionReportBuilder.fromContext(ctx, ExecutionStatus.CONFIRMED, null);
+                        return Mono.just(suppressed.withReport(suppressedReport));
                     }
-                    return Mono.just(tccResult);
+                    return Mono.just(finalTccResult);
                 }));
     }
 
