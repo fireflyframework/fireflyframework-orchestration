@@ -21,6 +21,8 @@ import org.fireflyframework.orchestration.core.exception.ExecutionNotFoundExcept
 import org.fireflyframework.orchestration.core.model.RetryPolicy;
 import org.fireflyframework.orchestration.core.model.TriggerMode;
 import org.fireflyframework.orchestration.core.topology.TopologyBuilder;
+import org.fireflyframework.orchestration.core.validation.OrchestrationValidator;
+import org.fireflyframework.orchestration.core.validation.ValidationIssue;
 import org.fireflyframework.orchestration.workflow.annotation.*;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.context.ApplicationContext;
@@ -42,21 +44,32 @@ import java.util.concurrent.ConcurrentHashMap;
 public class WorkflowRegistry {
 
     private final ApplicationContext applicationContext;
+    private final OrchestrationValidator validator;
     private final ConcurrentHashMap<String, WorkflowDefinition> definitions = new ConcurrentHashMap<>();
     private volatile boolean scanned = false;
 
     public WorkflowRegistry() {
-        this(null);
+        this(null, null);
     }
 
     public WorkflowRegistry(ApplicationContext applicationContext) {
+        this(applicationContext, null);
+    }
+
+    public WorkflowRegistry(ApplicationContext applicationContext, OrchestrationValidator validator) {
         this.applicationContext = applicationContext;
+        this.validator = validator;
     }
 
     public void register(WorkflowDefinition definition) {
         TopologyBuilder.validate(definition.steps(),
                 WorkflowStepDefinition::stepId,
                 WorkflowStepDefinition::dependsOn);
+
+        if (validator != null) {
+            List<ValidationIssue> issues = validator.validateWorkflow(definition);
+            validator.validateAndThrow(issues);
+        }
 
         if (definitions.putIfAbsent(definition.workflowId(), definition) != null) {
             throw new DuplicateDefinitionException(definition.workflowId());
@@ -171,6 +184,11 @@ public class WorkflowRegistry {
             TopologyBuilder.validate(wfDef.steps(),
                     WorkflowStepDefinition::stepId,
                     WorkflowStepDefinition::dependsOn);
+
+            if (validator != null) {
+                List<ValidationIssue> issues = validator.validateWorkflow(wfDef);
+                validator.validateAndThrow(issues);
+            }
 
             definitions.putIfAbsent(workflowId, wfDef);
             log.info("[workflow-registry] Discovered workflow '{}' with {} steps", workflowId, steps.size());
