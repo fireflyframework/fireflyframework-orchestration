@@ -11,6 +11,7 @@
 - [§9 WorkflowEngine API](#9-workflowengine-api)
 - [§10 Child Workflows](#10-child-workflows)
 - [§11 Search Attributes & Queries](#11-search-attributes--queries)
+- [§12 Execution Reporting for Workflows](#12-execution-reporting-for-workflows)
 
 ## 4. Workflow Annotation Reference
 
@@ -130,6 +131,141 @@ Schedules automatic execution of a workflow on a cron, fixed-rate, or fixed-dela
 | `enabled` | `boolean` | `true` | Whether this schedule is active |
 | `input` | `String` | `"{}"` | JSON string passed as workflow input |
 | `description` | `String` | `""` | Human-readable description |
+
+### @WaitForAll
+
+Marks a workflow step as waiting for ALL specified signals AND ALL specified timers before proceeding. The step suspends execution until every listed signal has been received and every listed timer has fired.
+
+**Target:** `ElementType.METHOD` | **Retention:** `RUNTIME`
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `signals` | `WaitForSignal[]` | `{}` | Signals that must ALL be received before the step proceeds |
+| `timers` | `WaitForTimer[]` | `{}` | Timers that must ALL fire before the step proceeds |
+
+**Example — step that waits for multiple approvals and a cooldown timer:**
+
+```java
+@WorkflowStep(id = "finalReview", dependsOn = "validate")
+@WaitForAll(
+    signals = {
+        @WaitForSignal(value = "manager-approval", timeoutMs = 86400000),
+        @WaitForSignal(value = "legal-approval", timeoutMs = 172800000)
+    },
+    timers = {
+        @WaitForTimer(delayMs = 60000, timerId = "cooling-period")
+    }
+)
+public Mono<String> finalReview(@Input Map<String, Object> input) {
+    // Executes only after BOTH signals are delivered AND the timer fires
+    return Mono.just("all-clear");
+}
+```
+
+### @WaitForAny
+
+Marks a workflow step as waiting for ANY of the specified signals or timers before proceeding. The step resumes execution as soon as the first signal is received or the first timer fires (ANY / race semantics).
+
+**Target:** `ElementType.METHOD` | **Retention:** `RUNTIME`
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `signals` | `WaitForSignal[]` | `{}` | Signals — step resumes on the first one received |
+| `timers` | `WaitForTimer[]` | `{}` | Timers — step resumes on the first one that fires |
+
+**Example — race between a human approval and a timeout timer:**
+
+```java
+@WorkflowStep(id = "awaitOrTimeout", dependsOn = "validate")
+@WaitForAny(
+    signals = {
+        @WaitForSignal("manual-override")
+    },
+    timers = {
+        @WaitForTimer(delayMs = 300000, timerId = "auto-escalation")
+    }
+)
+public Mono<String> awaitOrTimeout(@Input Map<String, Object> input) {
+    // Executes as soon as EITHER the signal arrives OR the 5-minute timer fires
+    return Mono.just("proceeded");
+}
+```
+
+### @CompensationStep
+
+Marks a method as a compensation handler for a named workflow step. When a workflow failure triggers compensation, this method is invoked to undo the work performed by the step identified by `compensates()`.
+
+**Target:** `ElementType.METHOD` | **Retention:** `RUNTIME`
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `compensates` | `String` | *(required)* | The step ID that this compensation method reverses |
+
+**Example — compensation handler for a payment charge step:**
+
+```java
+@Workflow(name = "OrderWorkflow")
+public class OrderWorkflow {
+
+    @WorkflowStep(id = "charge", dependsOn = "validate",
+                  compensatable = true)
+    public Mono<String> chargePayment(@FromStep("validate") Map<String, Object> validated) {
+        return paymentService.charge((String) validated.get("orderId"));
+    }
+
+    @CompensationStep(compensates = "charge")
+    public Mono<Void> refundPayment(ExecutionContext ctx) {
+        String chargeId = (String) ctx.getResult("charge");
+        return paymentService.refund(chargeId);
+    }
+}
+```
+
+The `@CompensationStep` annotation is an alternative to setting `compensationMethod` on `@WorkflowStep`. When both are present, `@CompensationStep` takes precedence. The `WorkflowRegistry` discovers these methods during scanning and wires them to the corresponding step definition.
+
+### @WorkflowQuery
+
+Marks a method as a read-only query handler for a workflow instance. Query handlers provide read-only access to workflow state without modifying it. The query name identifies which query this method handles, and query methods are discovered by `WorkflowRegistry` during scanning.
+
+**Target:** `ElementType.METHOD` | **Retention:** `RUNTIME`
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `value` | `String` | *(required)* | The query name this method handles |
+
+**Example — defining and executing a custom query:**
+
+```java
+@Workflow(name = "OrderWorkflow")
+public class OrderWorkflow {
+
+    @WorkflowStep(id = "validate")
+    public Mono<Map<String, Object>> validate(@Input Map<String, Object> input) {
+        return Mono.just(input);
+    }
+
+    @WorkflowQuery("orderStatus")
+    public String getOrderStatus(ExecutionContext ctx) {
+        Object result = ctx.getResult("validate");
+        return result != null ? "validated" : "pending";
+    }
+}
+```
+
+Executing the query from a service:
+
+```java
+@Service
+public class OrderInspectionService {
+    private final WorkflowQueryService workflowQueryService;
+
+    public Mono<Object> checkOrderStatus(String correlationId) {
+        return workflowQueryService.executeQuery(correlationId, "orderStatus");
+    }
+}
+```
+
+`WorkflowQueryService.executeQuery(String correlationId, String queryName, Object... args)` looks up the workflow definition from `WorkflowRegistry`, reconstructs an `ExecutionContext` from persisted state, and reflectively invokes the `@WorkflowQuery`-annotated method.
 
 ---
 
@@ -651,6 +787,50 @@ public Mono<List<String>> spawnChildren(
 }
 ```
 
+### @ChildWorkflow Annotation
+
+As an alternative to programmatic `ChildWorkflowService` usage, you can declaratively mark a step as a child-workflow invocation with the `@ChildWorkflow` annotation.
+
+**Target:** `ElementType.METHOD` | **Retention:** `RUNTIME`
+
+| Attribute | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `workflowId` | `String` | *(required)* | The ID of the child workflow to invoke |
+| `waitForCompletion` | `boolean` | `true` | Whether the parent step blocks until the child completes |
+| `timeoutMs` | `long` | `0` | Timeout in milliseconds (`0` = no timeout) |
+
+**Annotation-based usage:**
+
+```java
+@WorkflowStep(id = "processRegion", dependsOn = "validate")
+@ChildWorkflow(workflowId = "RegionalProcessing", waitForCompletion = true, timeoutMs = 60000)
+public Mono<String> processRegion(@Input Map<String, Object> input) {
+    // The engine spawns "RegionalProcessing" as a child workflow.
+    // This method executes after the child completes (waitForCompletion = true).
+    return Mono.just("region-done");
+}
+```
+
+**Programmatic usage with ChildWorkflowService:**
+
+```java
+@WorkflowStep(id = "spawnChildren", dependsOn = "validate")
+public Mono<List<String>> spawnChildren(
+        @Input Map<String, Object> input,
+        ExecutionContext ctx) {
+    List<String> regions = (List<String>) input.get("regions");
+    return Flux.fromIterable(regions)
+        .flatMap(region -> childWorkflowService.spawn(
+            ctx.getCorrelationId(),
+            "RegionalProcessing",
+            Map.of("region", region)))
+        .map(ChildWorkflowResult::childCorrelationId)
+        .collectList();
+}
+```
+
+Use `@ChildWorkflow` for simple single-child invocations. Use `ChildWorkflowService` when you need to spawn multiple children dynamically or require fine-grained control over the child inputs.
+
 ### Parent-Child Correlation
 
 - When a parent is cancelled, `cancelChildren()` is called automatically to cancel all children.
@@ -723,6 +903,9 @@ Both indexes use `ConcurrentHashMap` for thread safety.
 | `getTopologyLayers(correlationId)` | `Mono<Optional<List<List<String>>>>` | The computed DAG layers |
 | `getHeaders(correlationId)` | `Mono<Optional<Map<String, String>>>` | Execution headers |
 | `getFailureReason(correlationId)` | `Mono<Optional<String>>` | Failure reason (if failed) |
+| `executeQuery(correlationId, queryName, args...)` | `Mono<Object>` | Execute a custom `@WorkflowQuery`-annotated method on the workflow bean |
+
+The `executeQuery` method looks up the workflow definition from `WorkflowRegistry`, finds the method annotated with `@WorkflowQuery` matching the given `queryName`, reconstructs an `ExecutionContext` from persisted state, and invokes the query method reflectively. If the query method returns a `Mono`, it is unwrapped; otherwise the return value is wrapped in `Mono.justOrEmpty()`. Method parameters of type `ExecutionContext` are injected automatically; additional arguments are passed positionally.
 
 ### Query Example
 
@@ -736,6 +919,89 @@ workflowQueryService.getStepStatuses(correlationId)
             completed, statuses.size());
     }));
 ```
+
+---
+
+## 12. Execution Reporting for Workflows
+
+Every workflow execution produces an `ExecutionReport` that captures detailed metadata about the run. The engine populates the report automatically and attaches it to the `ExecutionState` via `ExecutionState.report()`, which returns `Optional<ExecutionReport>`.
+
+### ExecutionReport
+
+`ExecutionReport` is an immutable record (`org.fireflyframework.orchestration.core.report.ExecutionReport`) with the following fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `executionName` | `String` | Workflow name |
+| `correlationId` | `String` | Unique execution correlation ID |
+| `pattern` | `ExecutionPattern` | Always `ExecutionPattern.WORKFLOW` for workflows |
+| `status` | `ExecutionStatus` | Terminal status (`COMPLETED`, `FAILED`, etc.) |
+| `startedAt` | `Instant` | When execution started |
+| `completedAt` | `Instant` | When execution finished |
+| `duration` | `Duration` | Total wall-clock duration |
+| `stepReports` | `Map<String, StepReport>` | Per-step reports keyed by step ID |
+| `executionOrder` | `List<String>` | Step IDs in the order they completed |
+| `variables` | `Map<String, Object>` | Final context variables |
+| `failureReason` | `String` | Failure reason (null if successful) |
+| `compensationReport` | `CompensationReport` | Compensation details (null if no compensation occurred) |
+
+#### Computed Methods
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `isSuccess()` | `boolean` | Returns `true` if `status` is `COMPLETED` or `CONFIRMED` |
+| `stepCount()` | `int` | Total number of steps |
+| `failedStepCount()` | `int` | Number of steps with a failed status |
+| `completedStepCount()` | `int` | Number of steps that completed successfully |
+| `totalRetries()` | `int` | Sum of retry attempts across all steps (first attempt excluded) |
+
+### StepReport
+
+`StepReport` is an immutable record (`org.fireflyframework.orchestration.core.report.StepReport`) with the following fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `stepId` | `String` | Step identifier |
+| `status` | `StepStatus` | Terminal step status |
+| `attempts` | `int` | Total execution attempts (1 = no retries) |
+| `latency` | `Duration` | Step execution latency |
+| `result` | `Object` | Step result (null if failed or skipped) |
+| `error` | `Throwable` | Error (null if successful) |
+| `startedAt` | `Instant` | When the step started |
+| `completedAt` | `Instant` | When the step finished |
+
+### Accessing the Report
+
+```java
+workflowEngine.startWorkflow("OrderProcessing", Map.of("orderId", "ORD-456"))
+    .subscribe(state -> {
+        state.report().ifPresent(report -> {
+            System.out.println("Workflow: " + report.executionName());
+            System.out.println("Status: " + report.status());
+            System.out.println("Duration: " + report.duration().toMillis() + "ms");
+            System.out.println("Steps: " + report.stepCount()
+                + " total, " + report.completedStepCount()
+                + " completed, " + report.failedStepCount() + " failed");
+            System.out.println("Total retries: " + report.totalRetries());
+
+            report.stepReports().forEach((stepId, stepReport) -> {
+                System.out.printf("  %s: %s (attempts=%d, latency=%dms)%n",
+                    stepReport.stepId(),
+                    stepReport.status(),
+                    stepReport.attempts(),
+                    stepReport.latency().toMillis());
+            });
+
+            if (report.compensationReport() != null) {
+                System.out.println("Compensation: "
+                    + (report.compensationReport().allCompensated()
+                        ? "all compensated" : "partial"));
+            }
+        });
+    });
+```
+
+The `ExecutionState.withReport(ExecutionReport)` method creates a new `ExecutionState` instance with the report attached, preserving immutability. The engine calls this internally at the end of execution.
 
 ---
 
