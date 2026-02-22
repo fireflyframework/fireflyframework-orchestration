@@ -112,16 +112,19 @@ The module is organized into four layers. Your application defines orchestration
           |                             |                    |
 +---------v-----------------------------v--------------------v--------+
 |                           Core Layer                                |
-|   ExecutionContext    StepInvoker     ArgumentResolver              |
+|   ExecutionContext    StepInvoker     ArgumentResolver               |
 |   TopologyBuilder     RetryPolicy    OrchestrationEvents            |
 |   ExecutionState      DeadLetterService    RecoveryService          |
 |   EventGateway        OrchestrationScheduler                        |
+|   OrchestrationValidator   BackpressureStrategy                     |
+|   ExecutionReportBuilder                                            |
 +---------+--------------------------------+-------------------+------+
           |                                |                   |
 +---------v-----------------+   +----------v-----------+  +----v------+
 |   Persistence Layer       |   | Observability Layer  |  |  Events   |
 |  InMemory (default)       |   | LoggerEvents         |  |  Gateway  |
 |  Redis / Cache / ES       |   | Metrics / Tracing    |  |  Publish  |
+|                           |   | MetricsEndpoint      |  |           |
 +---------------------------+   +----------------------+  +-----------+
 ```
 
@@ -152,6 +155,9 @@ The module is organized into four layers. Your application defines orchestration
 - `OrchestrationScheduler` — cron, fixed-rate, and fixed-delay scheduling
 - `DeadLetterService` — captures failed executions for later retry
 - `RecoveryService` — detects and cleans up stale executions
+- `OrchestrationValidator` — validates definitions at registration time (empty steps, cycles, annotation conflicts)
+- `ExecutionReportBuilder` — builds execution reports attached to results
+- `BackpressureStrategyFactory` — registry of backpressure strategies for parallel execution control
 
 **Infrastructure Layer** — Pluggable adapters:
 - `ExecutionPersistenceProvider` — state storage (`InMemory`, `Redis`, `Cache`, `EventSourced`)
@@ -159,6 +165,7 @@ The module is organized into four layers. Your application defines orchestration
 - `OrchestrationMetrics` — Micrometer counters and timers (8 metrics)
 - `OrchestrationTracer` — Micrometer Observation API spans
 - `OrchestrationEventPublisher` — domain event publishing (`NoOpEventPublisher` default)
+- `OrchestrationMetricsEndpoint` — Actuator endpoint for orchestration metrics summary
 
 ### Data Flow
 

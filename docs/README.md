@@ -17,12 +17,12 @@ New to Firefly Orchestration? Start with the **[Tutorial: Fintech Payment Proces
 | Document | Description |
 |----------|-------------|
 | [Part I: Foundations](foundations.md) | Introduction, architecture overview, pattern selection guide |
-| [Part II: Workflow Pattern](workflow.md) | Workflow annotations, builder DSL, lifecycle management, signals & timers |
-| [Part III: Saga Pattern](saga.md) | Saga annotations, builder DSL, compensation policies, fan-out |
-| [Part IV: TCC Pattern](tcc.md) | TCC annotations, builder DSL, try/confirm/cancel phases |
-| [Part V: Core Infrastructure](core-infrastructure.md) | ExecutionContext, argument injection, retry, events, persistence, DLQ, observability |
+| [Part II: Workflow Pattern](workflow.md) | Workflow annotations, builder DSL, lifecycle management, signals & timers, execution reporting |
+| [Part III: Saga Pattern](saga.md) | Saga annotations, builder DSL, compensation policies, fan-out, saga composition |
+| [Part IV: TCC Pattern](tcc.md) | TCC annotations, builder DSL, try/confirm/cancel phases, TCC composition |
+| [Part V: Core Infrastructure](core-infrastructure.md) | ExecutionContext, argument injection, retry, events, persistence, DLQ, observability, backpressure, validation, metrics endpoint, event sourcing |
 | [Part VI: Configuration](configuration.md) | Configuration properties, auto-configuration chain, Spring Boot integration |
-| [Part VII: Recipes & Production](recipes-and-production.md) | Pattern composition, testing, error handling, production checklist |
+| [Part VII: Recipes & Production](recipes-and-production.md) | Pattern composition, testing, error handling, production checklist, validation & reporting, event sourcing |
 
 ---
 
@@ -42,6 +42,7 @@ New to Firefly Orchestration? Start with the **[Tutorial: Fintech Payment Proces
 - [§9 WorkflowEngine API](workflow.md#9-workflowengine-api)
 - [§10 Child Workflows](workflow.md#10-child-workflows)
 - [§11 Search Attributes & Queries](workflow.md#11-search-attributes--queries)
+- [§12 Execution Reporting for Workflows](workflow.md#12-execution-reporting-for-workflows)
 
 ### Part III: Saga Pattern
 - [§12 Saga Annotation Reference](saga.md#12-saga-annotation-reference)
@@ -51,6 +52,7 @@ New to Firefly Orchestration? Start with the **[Tutorial: Fintech Payment Proces
 - [§16 Saga Builder DSL](saga.md#16-saga-builder-dsl)
 - [§17 SagaEngine API](saga.md#17-sagaengine-api)
 - [§18 SagaResult](saga.md#18-sagaresult)
+- [§19 Saga Composition](saga.md#19-saga-composition)
 
 ### Part IV: TCC Pattern
 - [§19 TCC Annotation Reference](tcc.md#19-tcc-annotation-reference)
@@ -59,6 +61,7 @@ New to Firefly Orchestration? Start with the **[Tutorial: Fintech Payment Proces
 - [§22 TCC Builder DSL](tcc.md#22-tcc-builder-dsl)
 - [§23 TccEngine API](tcc.md#23-tccengine-api)
 - [§24 TccResult](tcc.md#24-tccresult)
+- [§25 TCC Composition](tcc.md#25-tcc-composition)
 
 ### Part V: Core Infrastructure
 - [§25 ExecutionContext](core-infrastructure.md#25-executioncontext)
@@ -74,6 +77,11 @@ New to Firefly Orchestration? Start with the **[Tutorial: Fintech Payment Proces
 - [§35 Observability: Metrics & Tracing](core-infrastructure.md#35-observability-metrics--tracing)
 - [§36 Topology & DAG Execution](core-infrastructure.md#36-topology--dag-execution)
 - [§37 REST API](core-infrastructure.md#37-rest-api)
+- [§38 Backpressure Strategies](core-infrastructure.md#38-backpressure-strategies)
+- [§39 Execution Reporting](core-infrastructure.md#39-execution-reporting)
+- [§40 Validation Framework](core-infrastructure.md#40-validation-framework)
+- [§41 Metrics Endpoint](core-infrastructure.md#41-metrics-endpoint)
+- [§42 Event Sourcing](core-infrastructure.md#42-event-sourcing)
 
 ### Part VI: Configuration
 - [§38 Configuration Properties](configuration.md#38-configuration-properties)
@@ -89,6 +97,8 @@ New to Firefly Orchestration? Start with the **[Tutorial: Fintech Payment Proces
 - [§46 Resilience Patterns](recipes-and-production.md#46-resilience-patterns)
 - [§47 Continue-as-New](recipes-and-production.md#47-continue-as-new)
 - [§48 FAQ & Troubleshooting](recipes-and-production.md#48-faq--troubleshooting)
+- [§49 Recipe: Validation & Reporting](recipes-and-production.md#49-recipe-validation--reporting)
+- [§50 Recipe: Event Sourcing](recipes-and-production.md#50-recipe-event-sourcing)
 
 ---
 
