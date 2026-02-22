@@ -16,6 +16,7 @@
 
 package org.fireflyframework.orchestration.saga.composition;
 
+import org.fireflyframework.orchestration.core.backpressure.BackpressureStrategy;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 import org.fireflyframework.orchestration.saga.engine.SagaEngine;
 import org.fireflyframework.orchestration.saga.engine.SagaResult;
@@ -36,11 +37,19 @@ public class CompositionExecutionOrchestrator {
 
     private final SagaEngine sagaEngine;
     private final CompositionDataFlowManager dataFlowManager;
+    private final BackpressureStrategy backpressureStrategy;
 
     public CompositionExecutionOrchestrator(SagaEngine sagaEngine,
                                              CompositionDataFlowManager dataFlowManager) {
+        this(sagaEngine, dataFlowManager, null);
+    }
+
+    public CompositionExecutionOrchestrator(SagaEngine sagaEngine,
+                                             CompositionDataFlowManager dataFlowManager,
+                                             BackpressureStrategy backpressureStrategy) {
         this.sagaEngine = sagaEngine;
         this.dataFlowManager = dataFlowManager;
+        this.backpressureStrategy = backpressureStrategy;
     }
 
     /**
@@ -64,8 +73,16 @@ public class CompositionExecutionOrchestrator {
 
         List<SagaComposition.CompositionSaga> layer = layers.get(layerIndex);
 
-        return Flux.fromIterable(layer)
-                .flatMap(saga -> executeSaga(composition, saga, globalInput, context))
+        Flux<SagaResult> layerExecution;
+        if (backpressureStrategy != null && layer.size() > 1) {
+            layerExecution = backpressureStrategy.applyBackpressure(layer,
+                    saga -> executeSaga(composition, saga, globalInput, context));
+        } else {
+            layerExecution = Flux.fromIterable(layer)
+                    .flatMap(saga -> executeSaga(composition, saga, globalInput, context));
+        }
+
+        return layerExecution
                 .collectList()
                 .flatMap(layerResults -> {
                     boolean layerSuccess = layerResults.stream()

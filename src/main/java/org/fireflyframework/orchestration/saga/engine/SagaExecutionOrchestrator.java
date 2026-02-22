@@ -17,6 +17,7 @@
 package org.fireflyframework.orchestration.saga.engine;
 
 import org.fireflyframework.orchestration.core.argument.SetVariable;
+import org.fireflyframework.orchestration.core.backpressure.BackpressureStrategy;
 import org.fireflyframework.orchestration.core.context.ExecutionContext;
 import org.fireflyframework.orchestration.core.event.OrchestrationEvent;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
@@ -52,19 +53,28 @@ public class SagaExecutionOrchestrator {
     private final OrchestrationEvents events;
     private final OrchestrationEventPublisher eventPublisher;
     private final ExecutionPersistenceProvider persistence;
+    private final BackpressureStrategy backpressureStrategy;
 
     public SagaExecutionOrchestrator(StepInvoker stepInvoker, OrchestrationEvents events,
                                       OrchestrationEventPublisher eventPublisher) {
-        this(stepInvoker, events, eventPublisher, null);
+        this(stepInvoker, events, eventPublisher, null, null);
     }
 
     public SagaExecutionOrchestrator(StepInvoker stepInvoker, OrchestrationEvents events,
                                       OrchestrationEventPublisher eventPublisher,
                                       ExecutionPersistenceProvider persistence) {
+        this(stepInvoker, events, eventPublisher, persistence, null);
+    }
+
+    public SagaExecutionOrchestrator(StepInvoker stepInvoker, OrchestrationEvents events,
+                                      OrchestrationEventPublisher eventPublisher,
+                                      ExecutionPersistenceProvider persistence,
+                                      BackpressureStrategy backpressureStrategy) {
         this.stepInvoker = Objects.requireNonNull(stepInvoker, "stepInvoker");
         this.events = Objects.requireNonNull(events, "events");
         this.eventPublisher = Objects.requireNonNull(eventPublisher, "eventPublisher");
         this.persistence = persistence;
+        this.backpressureStrategy = backpressureStrategy;
     }
 
     public Mono<ExecutionResult> orchestrate(SagaDefinition saga, StepInputs inputs,
@@ -95,6 +105,17 @@ public class SagaExecutionOrchestrator {
 
     private Mono<ExecutionState> executeLayer(ExecutionState state, List<String> layer) {
         if (layer.isEmpty()) return Mono.just(state);
+
+        // Use backpressure strategy when available and layer has multiple steps
+        if (backpressureStrategy != null && layer.size() > 1) {
+            return backpressureStrategy.applyBackpressure(layer,
+                            stepId -> executeStepWithErrorHandling(state, stepId).then(Mono.empty()))
+                    .then(Mono.just(state))
+                    .onErrorResume(err -> {
+                        state.failed.set(true);
+                        return Mono.just(state);
+                    });
+        }
 
         int concurrency = state.saga.layerConcurrency;
 

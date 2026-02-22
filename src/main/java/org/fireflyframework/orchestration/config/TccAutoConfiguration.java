@@ -16,6 +16,8 @@
 
 package org.fireflyframework.orchestration.config;
 
+import org.fireflyframework.orchestration.core.backpressure.BackpressureStrategy;
+import org.fireflyframework.orchestration.core.backpressure.BackpressureStrategyFactory;
 import org.fireflyframework.orchestration.core.dlq.DeadLetterService;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
@@ -106,9 +108,17 @@ public class TccAutoConfiguration {
     public TccCompositor tccCompositor(TccEngine tccEngine,
                                         OrchestrationEvents events,
                                         TccCompositionDataFlowManager dataFlowManager,
-                                        TccCompositionCompensationManager compensationManager) {
+                                        TccCompositionCompensationManager compensationManager,
+                                        OrchestrationProperties properties) {
+        BackpressureStrategy backpressure = BackpressureStrategyFactory
+                .getStrategy(properties.getBackpressure().getStrategy())
+                .orElse(null);
+        if (backpressure != null) {
+            log.info("[orchestration] TCC compositor using backpressure strategy: {}",
+                    properties.getBackpressure().getStrategy());
+        }
         log.info("[orchestration] TCC compositor initialized");
-        return new TccCompositor(tccEngine, events, dataFlowManager, compensationManager);
+        return new TccCompositor(tccEngine, events, dataFlowManager, compensationManager, backpressure);
     }
 
     @Bean

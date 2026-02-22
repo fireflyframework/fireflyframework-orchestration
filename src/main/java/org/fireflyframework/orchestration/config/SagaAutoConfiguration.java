@@ -16,6 +16,8 @@
 
 package org.fireflyframework.orchestration.config;
 
+import org.fireflyframework.orchestration.core.backpressure.BackpressureStrategy;
+import org.fireflyframework.orchestration.core.backpressure.BackpressureStrategyFactory;
 import org.fireflyframework.orchestration.core.dlq.DeadLetterService;
 import org.fireflyframework.orchestration.core.event.OrchestrationEventPublisher;
 import org.fireflyframework.orchestration.core.model.CompensationPolicy;
@@ -63,8 +65,16 @@ public class SagaAutoConfiguration {
     public SagaExecutionOrchestrator sagaExecutionOrchestrator(StepInvoker stepInvoker,
                                                                 OrchestrationEvents events,
                                                                 OrchestrationEventPublisher eventPublisher,
-                                                                ExecutionPersistenceProvider persistence) {
-        return new SagaExecutionOrchestrator(stepInvoker, events, eventPublisher, persistence);
+                                                                ExecutionPersistenceProvider persistence,
+                                                                OrchestrationProperties properties) {
+        BackpressureStrategy backpressure = BackpressureStrategyFactory
+                .getStrategy(properties.getBackpressure().getStrategy())
+                .orElse(null);
+        if (backpressure != null) {
+            log.info("[orchestration] Saga execution orchestrator using backpressure strategy: {}",
+                    properties.getBackpressure().getStrategy());
+        }
+        return new SagaExecutionOrchestrator(stepInvoker, events, eventPublisher, persistence, backpressure);
     }
 
     @Bean

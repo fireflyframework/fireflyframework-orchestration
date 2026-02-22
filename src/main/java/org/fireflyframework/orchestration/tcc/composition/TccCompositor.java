@@ -16,6 +16,7 @@
 
 package org.fireflyframework.orchestration.tcc.composition;
 
+import org.fireflyframework.orchestration.core.backpressure.BackpressureStrategy;
 import org.fireflyframework.orchestration.core.observability.OrchestrationEvents;
 import org.fireflyframework.orchestration.tcc.engine.TccEngine;
 import org.fireflyframework.orchestration.tcc.engine.TccResult;
@@ -41,15 +42,25 @@ public class TccCompositor {
     private final OrchestrationEvents events;
     private final TccCompositionDataFlowManager dataFlowManager;
     private final TccCompositionCompensationManager compensationManager;
+    private final BackpressureStrategy backpressureStrategy;
 
     public TccCompositor(TccEngine tccEngine,
                           OrchestrationEvents events,
                           TccCompositionDataFlowManager dataFlowManager,
                           TccCompositionCompensationManager compensationManager) {
+        this(tccEngine, events, dataFlowManager, compensationManager, null);
+    }
+
+    public TccCompositor(TccEngine tccEngine,
+                          OrchestrationEvents events,
+                          TccCompositionDataFlowManager dataFlowManager,
+                          TccCompositionCompensationManager compensationManager,
+                          BackpressureStrategy backpressureStrategy) {
         this.tccEngine = tccEngine;
         this.events = events;
         this.dataFlowManager = dataFlowManager;
         this.compensationManager = compensationManager;
+        this.backpressureStrategy = backpressureStrategy;
     }
 
     /**
@@ -98,8 +109,16 @@ public class TccCompositor {
 
         List<TccComposition.CompositionTcc> layer = layers.get(layerIndex);
 
-        return Flux.fromIterable(layer)
-                .flatMap(tcc -> executeTcc(composition, tcc, globalInput, context))
+        Flux<TccResult> layerExecution;
+        if (backpressureStrategy != null && layer.size() > 1) {
+            layerExecution = backpressureStrategy.applyBackpressure(layer,
+                    tcc -> executeTcc(composition, tcc, globalInput, context));
+        } else {
+            layerExecution = Flux.fromIterable(layer)
+                    .flatMap(tcc -> executeTcc(composition, tcc, globalInput, context));
+        }
+
+        return layerExecution
                 .collectList()
                 .flatMap(layerResults -> {
                     boolean layerSuccess = layerResults.stream()
