@@ -16,6 +16,11 @@
 - [§35 Observability: Metrics & Tracing](#35-observability-metrics--tracing)
 - [§36 Topology & DAG Execution](#36-topology--dag-execution)
 - [§37 REST API](#37-rest-api)
+- [§38 Backpressure Strategies](#38-backpressure-strategies)
+- [§39 Execution Reporting](#39-execution-reporting)
+- [§40 Validation Framework](#40-validation-framework)
+- [§41 Metrics Endpoint](#41-metrics-endpoint)
+- [§42 Event Sourcing](#42-event-sourcing)
 
 ## 25. ExecutionContext
 
@@ -1159,6 +1164,587 @@ OrchestrationException (sealed)
 └── TccPhaseException                — TCC Try/Confirm/Cancel phase error
       getPhase()                     — which phase (TRY, CONFIRM, CANCEL)
 ```
+
+---
+
+## 38. Backpressure Strategies
+
+The backpressure subsystem in `org.fireflyframework.orchestration.core.backpressure` provides reactive flow-control strategies for parallel step execution.
+
+### BackpressureStrategy Interface
+
+```java
+public interface BackpressureStrategy {
+
+    @FunctionalInterface
+    interface ItemProcessor<T, R> {
+        Mono<R> process(T item);
+    }
+
+    <T, R> Flux<R> applyBackpressure(List<T> items, ItemProcessor<T, R> processor);
+}
+```
+
+All strategies accept a list of items and an `ItemProcessor` that processes each item reactively, returning a `Flux<R>` of results with the strategy's flow-control applied.
+
+### Implementations
+
+#### AdaptiveBackpressureStrategy
+
+Dynamic concurrency adjustment based on real-time error rates. Uses `AtomicInteger currentConcurrency` and `AtomicLong totalProcessed` / `AtomicLong totalErrors` for thread-safe tracking.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `initialConcurrency` | `int` | `4` | Starting concurrency level |
+| `minConcurrency` | `int` | `1` | Floor for concurrency scaling |
+| `maxConcurrency` | `int` | `16` | Ceiling for concurrency scaling |
+| `errorRateThreshold` | `double` | `0.1` | Error rate above which concurrency is reduced |
+
+**Scaling behavior:**
+
+- When error rate exceeds `errorRateThreshold` → concurrency is **halved** (floored at `minConcurrency`)
+- When error rate drops below half of `errorRateThreshold` → concurrency is **incremented by 1** (capped at `maxConcurrency`)
+
+Uses `Flux.flatMap(processor, currentConcurrency.get())` internally to enforce the dynamic concurrency limit.
+
+#### BatchedBackpressureStrategy
+
+Fixed-size batch processing. Batches are processed **sequentially**; items **within** a batch are processed concurrently.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `batchSize` | `int` | `10` | Number of items per batch |
+
+```java
+Flux.fromIterable(items)
+    .buffer(batchSize)
+    .concatMap(batch -> Flux.fromIterable(batch)
+        .flatMap(processor::process))
+```
+
+#### CircuitBreakerBackpressureStrategy
+
+Three-state circuit breaker using `AtomicReference<State>`.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `failureThreshold` | `int` | `5` | Consecutive failures before opening |
+| `recoveryTimeout` | `Duration` | `30s` | Time in OPEN before transitioning to HALF_OPEN |
+| `halfOpenMaxCalls` | `int` | `3` | Successful calls in HALF_OPEN to close the circuit |
+
+**State transitions:**
+
+```
+CLOSED ──(failureThreshold consecutive failures)──→ OPEN
+OPEN ──(recoveryTimeout elapsed)──→ HALF_OPEN
+HALF_OPEN ──(halfOpenMaxCalls successes)──→ CLOSED
+HALF_OPEN ──(any failure)──→ OPEN
+```
+
+When the circuit is OPEN, all processing attempts immediately fail with `CircuitBreakerOpenException`.
+
+### BackpressureConfig Record
+
+Configuration record with 9 fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `strategy` | `String` | Strategy name (e.g., `"adaptive"`, `"batched"`, `"circuit-breaker"`) |
+| `batchSize` | `int` | Batch size for `BatchedBackpressureStrategy` |
+| `failureThreshold` | `int` | Failure threshold for circuit breaker |
+| `recoveryTimeout` | `Duration` | Recovery timeout for circuit breaker |
+| `halfOpenMaxCalls` | `int` | Half-open max calls for circuit breaker |
+| `initialConcurrency` | `int` | Initial concurrency for adaptive strategy |
+| `maxConcurrency` | `int` | Maximum concurrency for adaptive strategy |
+| `minConcurrency` | `int` | Minimum concurrency for adaptive strategy |
+| `errorRateThreshold` | `double` | Error rate threshold for adaptive strategy |
+
+Factory method: `BackpressureConfig.defaults()` — returns an adaptive strategy configuration with sensible defaults.
+
+### BackpressureStrategyFactory
+
+Static utility class with a `ConcurrentHashMap<String, Supplier<BackpressureStrategy>>` registry.
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `getStrategy(String name)` | `Optional<BackpressureStrategy>` | Look up and instantiate a strategy by name |
+| `registerStrategy(String name, Supplier<BackpressureStrategy> supplier)` | `void` | Register a custom strategy |
+| `fromConfig(BackpressureConfig config)` | `BackpressureStrategy` | Build a strategy from a configuration record |
+| `resetDefaults()` | `void` | Reset the registry to the 5 built-in strategies |
+
+**Pre-registered strategies (5):**
+
+| Name | Strategy | Configuration |
+|------|----------|---------------|
+| `"adaptive"` | `AdaptiveBackpressureStrategy` | Default parameters |
+| `"batched"` | `BatchedBackpressureStrategy` | Default batch size (10) |
+| `"circuit-breaker"` | `CircuitBreakerBackpressureStrategy` | Default parameters (threshold=5, recovery=30s, halfOpen=3) |
+| `"circuit-breaker-aggressive"` | `CircuitBreakerBackpressureStrategy` | threshold=2, recovery=60s, halfOpen=1 |
+| `"circuit-breaker-conservative"` | `CircuitBreakerBackpressureStrategy` | threshold=10, recovery=15s, halfOpen=5 |
+
+### Usage in Engines
+
+`SagaExecutionOrchestrator` and `TccCompositor` accept an optional `BackpressureStrategy`. When present, parallel execution uses `backpressureStrategy.applyBackpressure(items, processor)` instead of raw `Flux.flatMap()`.
+
+```java
+// Example: Saga with adaptive backpressure
+BackpressureStrategy strategy = BackpressureStrategyFactory
+    .getStrategy("adaptive")
+    .orElseThrow();
+
+SagaResult result = sagaEngine.execute("OrderSaga", input, strategy).block();
+```
+
+---
+
+## 39. Execution Reporting
+
+The reporting subsystem in `org.fireflyframework.orchestration.core.report` provides structured, immutable execution reports generated automatically by all three engines.
+
+### ExecutionReport Record
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `executionName` | `String` | Name of the saga, workflow, or TCC |
+| `correlationId` | `String` | Unique execution identifier |
+| `pattern` | `ExecutionPattern` | `WORKFLOW`, `SAGA`, or `TCC` |
+| `status` | `ExecutionStatus` | Terminal status of the execution |
+| `startedAt` | `Instant` | When the execution started |
+| `completedAt` | `Instant` | When the execution completed |
+| `duration` | `Duration` | Total execution duration |
+| `stepReports` | `Map<String, StepReport>` | Per-step detailed reports |
+| `executionOrder` | `List<String>` | Ordered list of step IDs as executed |
+| `variables` | `Map<String, Object>` | Final execution variables |
+| `failureReason` | `String` | Error message (if failed) |
+| `compensationReport` | `CompensationReport` | Compensation details (if applicable) |
+
+**Computed methods (5):**
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `isSuccess()` | `boolean` | `true` if status is `COMPLETED` or `CONFIRMED` |
+| `stepCount()` | `int` | Total number of steps |
+| `failedStepCount()` | `int` | Count of steps with status `FAILED`, `TRY_FAILED`, `CONFIRM_FAILED`, `CANCEL_FAILED`, or `COMPENSATION_FAILED` |
+| `completedStepCount()` | `int` | Count of successfully completed steps |
+| `totalRetries()` | `int` | Sum of `max(0, attempts - 1)` across all step reports |
+
+### StepReport Record
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `stepId` | `String` | Step identifier |
+| `status` | `StepStatus` | Final step status |
+| `attempts` | `int` | Total execution attempts (1 = no retries) |
+| `latency` | `Duration` | Step execution duration |
+| `result` | `Object` | Step return value |
+| `error` | `Throwable` | Step error (if failed) |
+| `startedAt` | `Instant` | When the step started |
+| `completedAt` | `Instant` | When the step completed |
+
+### CompensationReport Record
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `policy` | `CompensationPolicy` | Compensation policy used |
+| `steps` | `List<CompensationStepReport>` | Per-step compensation details |
+| `totalDuration` | `Duration` | Total compensation duration |
+| `allCompensated` | `boolean` | `true` if all compensations succeeded |
+
+**CompensationStepReport** (inner record):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `stepId` | `String` | Compensated step identifier |
+| `success` | `boolean` | Whether compensation succeeded |
+| `error` | `Throwable` | Compensation error (if failed) |
+| `duration` | `Duration` | Compensation step duration |
+
+### ExecutionReportBuilder
+
+Builds an immutable `ExecutionReport` from context state:
+
+```java
+ExecutionReport report = ExecutionReportBuilder.fromContext(ctx, status, failureReason);
+```
+
+The `fromContext(ExecutionContext ctx, ExecutionStatus status, String failureReason)` method extracts all step results, statuses, attempts, latencies, and variables from the context to construct the report.
+
+### Accessing Reports
+
+All three engine result types expose reports via an `Optional`:
+
+```java
+// Saga
+SagaResult sagaResult = sagaEngine.execute("OrderSaga", input).block();
+sagaResult.report().ifPresent(report -> {
+    log.info("Saga completed: {} steps, {} retries, {} failed",
+        report.stepCount(), report.totalRetries(), report.failedStepCount());
+});
+
+// TCC
+TccResult tccResult = tccEngine.execute("PaymentTcc", input).block();
+tccResult.report().ifPresent(report -> {
+    log.info("TCC duration: {}", report.duration());
+});
+
+// ExecutionState (persistence)
+ExecutionState state = persistenceProvider.findById(correlationId).block().orElseThrow();
+state.report().ifPresent(report -> {
+    log.info("Execution {}: {}", report.correlationId(), report.status());
+});
+```
+
+Reports are wired automatically by all three engines — no additional configuration is required.
+
+---
+
+## 40. Validation Framework
+
+The validation subsystem in `org.fireflyframework.orchestration.core.validation` validates orchestration definitions at registration time, catching configuration errors before execution.
+
+### OrchestrationValidator
+
+Validates definitions and returns a list of issues. Each validation method performs pattern-specific checks.
+
+#### validateWorkflow(WorkflowDefinition) → List\<ValidationIssue\>
+
+Checks:
+
+- Empty steps list
+- Duplicate step IDs
+- Missing dependency references (step declares `dependsOn` a non-existent step)
+- Cyclic dependencies (delegates to `TopologyBuilder`)
+- Missing compensation methods (step declares compensation but method is missing)
+- Timeout/retry sanity: negative values, timeouts exceeding 24 hours
+- Annotation conflicts: `@WaitForAll` and `@WaitForAny` are mutually exclusive on the same step
+
+#### validateSaga(SagaDefinition) → List\<ValidationIssue\>
+
+Checks:
+
+- Empty steps list
+- Missing dependency references
+- Cyclic dependencies
+- Missing compensation methods
+- Retry/timeout sanity: negative values, unreasonable maximums
+
+#### validateTcc(TccDefinition) → List\<ValidationIssue\>
+
+Checks:
+
+- Empty participants list
+- Missing `@TryMethod`, `@ConfirmMethod`, or `@CancelMethod` on participants
+- Per-phase timeout/retry sanity
+
+#### validateAndThrow(List\<ValidationIssue\>)
+
+Logs all issues at their severity level (`ERROR` → `error`, `WARNING` → `warn`, `INFO` → `info`). Throws `IllegalStateException` if any `ERROR`-level issues are present.
+
+```java
+List<ValidationIssue> issues = validator.validateWorkflow(definition);
+validator.validateAndThrow(issues); // throws if any ERROR-level issues
+```
+
+### ValidationIssue Record
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `severity` | `Severity` | `ERROR`, `WARNING`, or `INFO` |
+| `message` | `String` | Human-readable description of the issue |
+| `location` | `String` | Dotted path identifying the issue location (e.g., `"workflow.order-processing.step.validate"`) |
+
+```java
+public enum Severity {
+    ERROR,    // blocks registration — definition will not be registered
+    WARNING,  // logged but does not block registration
+    INFO      // informational only
+}
+```
+
+### Integration with Registries
+
+Registries invoke the validator during component scanning when validation is enabled:
+
+```yaml
+firefly:
+  orchestration:
+    validation:
+      enabled: true   # default
+```
+
+- `ERROR` issues abort registration — the definition is not added to the registry
+- `WARNING` and `INFO` issues are logged but registration proceeds
+
+```java
+// Internal registry behavior (simplified)
+List<ValidationIssue> issues = validator.validateSaga(definition);
+validator.validateAndThrow(issues); // aborts if ERRORs present
+registry.register(definition);      // only reached if no ERRORs
+```
+
+---
+
+## 41. Metrics Endpoint
+
+The `org.fireflyframework.orchestration.core.observability.OrchestrationMetricsEndpoint` exposes orchestration metrics through Spring Boot Actuator.
+
+### Configuration
+
+```java
+@Endpoint(id = "orchestration-metrics")
+```
+
+Conditional on Spring Boot Actuator being on the classpath. Reads counters from the `MeterRegistry` registered by `OrchestrationMetrics` (see [§35](#35-observability-metrics--tracing)).
+
+### Endpoints
+
+#### GET /actuator/orchestration-metrics
+
+Returns all orchestration metrics as JSON:
+
+```json
+{
+  "executions": {
+    "total": 1250,
+    "active": 3,
+    "completed": 1200,
+    "failed": 47
+  },
+  "patterns": {
+    "WORKFLOW": { "total": 500, "completed": 480, "failed": 20 },
+    "SAGA": { "total": 600, "completed": 580, "failed": 20 },
+    "TCC": { "total": 150, "completed": 140, "failed": 7 }
+  },
+  "steps": {
+    "total": 5000,
+    "failed": 120,
+    "retried": 350
+  },
+  "compensation": {
+    "total": 47,
+    "failed": 3
+  },
+  "dlq": {
+    "entries": 5
+  },
+  "uptime": "PT48H30M"
+}
+```
+
+#### GET /actuator/orchestration-metrics/{pattern}
+
+Returns the same structure but filtered to a single execution pattern (`WORKFLOW`, `SAGA`, or `TCC`). Returns an error map for unknown patterns.
+
+### Read Operations
+
+Two `@ReadOperation` methods:
+
+```java
+@ReadOperation
+public Map<String, Object> metrics() {
+    // Returns all orchestration metrics
+}
+
+@ReadOperation
+public Map<String, Object> metrics(@Selector String pattern) {
+    // Returns metrics filtered by ExecutionPattern
+}
+```
+
+---
+
+## 42. Event Sourcing
+
+The event sourcing subsystem in `org.fireflyframework.orchestration.persistence.eventsourced` provides full event-sourced persistence with aggregate reconstruction, snapshots, and read-side projections.
+
+### OrchestrationDomainEvent
+
+Sealed interface with 26 permitted event records covering the complete execution lifecycle:
+
+**Execution lifecycle (6):**
+
+| Event | Description |
+|-------|-------------|
+| `ExecutionStartedEvent` | Execution initiated |
+| `ExecutionCompletedEvent` | Execution completed successfully |
+| `ExecutionFailedEvent` | Execution failed |
+| `ExecutionCancelledEvent` | Execution cancelled |
+| `ExecutionSuspendedEvent` | Execution suspended (workflow) |
+| `ExecutionResumedEvent` | Execution resumed (workflow) |
+
+**Step lifecycle (5):**
+
+| Event | Description |
+|-------|-------------|
+| `StepStartedEvent` | Step execution began |
+| `StepCompletedEvent` | Step completed successfully |
+| `StepFailedEvent` | Step failed |
+| `StepSkippedEvent` | Step skipped (condition or dry-run) |
+| `StepRetriedEvent` | Step retry attempted |
+
+**Compensation (3):**
+
+| Event | Description |
+|-------|-------------|
+| `CompensationStartedEvent` | Compensation phase began |
+| `CompensationStepCompletedEvent` | Compensation step succeeded |
+| `CompensationStepFailedEvent` | Compensation step failed |
+
+**TCC phases (3):**
+
+| Event | Description |
+|-------|-------------|
+| `PhaseStartedEvent` | TCC phase (TRY/CONFIRM/CANCEL) started |
+| `PhaseCompletedEvent` | TCC phase completed |
+| `PhaseFailedEvent` | TCC phase failed |
+
+**Signals (2):**
+
+| Event | Description |
+|-------|-------------|
+| `SignalReceivedEvent` | Signal received by workflow |
+| `SignalConsumedEvent` | Signal consumed by a waiting step |
+
+**Timers (2):**
+
+| Event | Description |
+|-------|-------------|
+| `TimerRegisteredEvent` | Timer registered for a workflow |
+| `TimerFiredEvent` | Timer fired |
+
+**Child workflows (2):**
+
+| Event | Description |
+|-------|-------------|
+| `ChildWorkflowSpawnedEvent` | Child workflow started |
+| `ChildWorkflowCompletedEvent` | Child workflow completed |
+
+**Search attributes (1):**
+
+| Event | Description |
+|-------|-------------|
+| `SearchAttributeUpdatedEvent` | Search attribute updated on execution |
+
+**Continue-as-new (1):**
+
+| Event | Description |
+|-------|-------------|
+| `ContinueAsNewEvent` | Workflow continued as new execution |
+
+**Checkpoints (1):**
+
+| Event | Description |
+|-------|-------------|
+| `CheckpointSavedEvent` | Execution checkpoint saved |
+
+All 26 events share three common methods: `correlationId()`, `timestamp()`, `pattern()`.
+
+### OrchestrationAggregate
+
+Mutable aggregate that accumulates state by applying domain events.
+
+| Method | Description |
+|--------|-------------|
+| `raise(OrchestrationDomainEvent event)` | Adds event to uncommitted list and applies it to state |
+| `apply(OrchestrationDomainEvent event)` | Pattern matches on the sealed type to update aggregate state |
+| `getUncommittedEvents()` | Returns the list of events not yet persisted |
+| `markEventsCommitted()` | Clears the uncommitted events list |
+
+**State maintained by the aggregate:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `correlationId` | `String` | Execution identifier |
+| `executionName` | `String` | Saga/workflow/TCC name |
+| `pattern` | `ExecutionPattern` | Execution pattern |
+| `status` | `ExecutionStatus` | Current execution status |
+| `stepStatuses` | `Map<String, StepStatus>` | Per-step statuses |
+| `stepResults` | `Map<String, Object>` | Per-step results |
+| `stepAttempts` | `Map<String, Integer>` | Per-step attempt counts |
+| `stepLatenciesMs` | `Map<String, Long>` | Per-step latencies |
+| `variables` | `Map<String, Object>` | Execution variables |
+| `headers` | `Map<String, String>` | Execution headers |
+| `failureReason` | `String` | Failure message (if failed) |
+| `startedAt` | `Instant` | When execution started |
+| `updatedAt` | `Instant` | Last state update |
+| `currentPhase` | `TccPhase` | Current TCC phase (TCC only) |
+
+The `apply()` method uses pattern matching on the sealed `OrchestrationDomainEvent` type to route each event to its corresponding state update logic.
+
+### OrchestrationSnapshot
+
+Immutable record capturing the full aggregate state at a point in time (14 fields matching the aggregate state above).
+
+```java
+// Create a snapshot from an aggregate
+OrchestrationSnapshot snapshot = OrchestrationSnapshot.from(aggregate);
+
+// Restore an aggregate from a snapshot
+OrchestrationAggregate aggregate = snapshot.restore();
+```
+
+All map fields are defensively copied via `Map.copyOf()` to ensure immutability.
+
+### OrchestrationProjection
+
+Read-side projection maintaining an in-memory view of execution summaries using `ConcurrentHashMap<String, ExecutionSummary>`.
+
+**Update method:**
+
+```java
+public void processEvent(OrchestrationDomainEvent event)
+```
+
+Processes each domain event to create or update the corresponding `ExecutionSummary`.
+
+**Query methods:**
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `getExecutionSummary(String correlationId)` | `Optional<ExecutionSummary>` | Look up a single execution |
+| `findByStatus(ExecutionStatus status)` | `List<ExecutionSummary>` | Find all executions with a given status |
+| `findByPattern(ExecutionPattern pattern)` | `List<ExecutionSummary>` | Find all executions of a given pattern |
+
+**ExecutionSummary record:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `correlationId` | `String` | Execution identifier |
+| `executionName` | `String` | Saga/workflow/TCC name |
+| `pattern` | `ExecutionPattern` | Execution pattern |
+| `status` | `ExecutionStatus` | Current status |
+| `stepStatuses` | `Map<String, StepStatus>` | Per-step statuses |
+| `startedAt` | `Instant` | When execution started |
+| `lastUpdated` | `Instant` | Last event timestamp |
+| `failureReason` | `String` | Failure message (if failed) |
+| `eventCount` | `int` | Total events processed for this execution |
+
+### EventSourcedPersistenceProvider
+
+Implements `ExecutionPersistenceProvider` with full event-sourcing semantics.
+
+**Dependencies:**
+
+| Component | Role |
+|-----------|------|
+| `EventStore` | Appending and reading domain events |
+| `OrchestrationAggregate` | Reconstructing state from event streams |
+| `OrchestrationSnapshot` | Caching aggregate state for efficient hydration |
+| `OrchestrationProjection` | Cross-aggregate queries (by pattern, by status) |
+
+**Method implementations:**
+
+| Method | Behavior |
+|--------|----------|
+| `save(ExecutionState)` | Emits domain events with serialized state as event payload |
+| `findById(String)` | Loads event stream and deserializes last event to reconstruct state |
+| `updateStatus(String, ExecutionStatus)` | Appends a status-change event |
+| `findByPattern(ExecutionPattern)` | Delegates to `OrchestrationProjection` for efficient lookup |
+| `findByStatus(ExecutionStatus)` | Delegates to `OrchestrationProjection` for efficient lookup |
+| `findInFlight()` | Delegates to projection, filtering for non-terminal statuses |
+| `findStale(Instant)` | Delegates to projection, filtering by timestamp |
+| `cleanup(Duration)` | No-op — events are immutable and are never deleted |
+| `isHealthy()` | Returns `true` if the event store is accessible |
 
 ---
 
