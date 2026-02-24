@@ -6,10 +6,28 @@
       "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties"
     },
     {
+      "name": "firefly.orchestration.backpressure",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$BackpressureProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
+      "sourceMethod": "getBackpressure()"
+    },
+    {
+      "name": "firefly.orchestration.backpressure.circuit-breaker",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$CircuitBreakerProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$BackpressureProperties",
+      "sourceMethod": "getCircuitBreaker()"
+    },
+    {
       "name": "firefly.orchestration.dlq",
       "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$DlqProperties",
       "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
       "sourceMethod": "getDlq()"
+    },
+    {
+      "name": "firefly.orchestration.eventsourcing",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$EventSourcingProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
+      "sourceMethod": "getEventsourcing()"
     },
     {
       "name": "firefly.orchestration.health",
@@ -66,24 +84,83 @@
       "sourceMethod": "getTcc()"
     },
     {
+      "name": "firefly.orchestration.tcc.composition",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$TccCompositionProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$TccProperties",
+      "sourceMethod": "getComposition()"
+    },
+    {
       "name": "firefly.orchestration.tracing",
       "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$TracingProperties",
       "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
       "sourceMethod": "getTracing()"
     },
     {
+      "name": "firefly.orchestration.validation",
+      "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$ValidationProperties",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
+      "sourceMethod": "getValidation()"
+    },
+    {
       "name": "firefly.orchestration.workflow",
       "type": "org.fireflyframework.orchestration.config.OrchestrationProperties$WorkflowProperties",
       "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties",
       "sourceMethod": "getWorkflow()"
+    },
+    {
+      "name": "management.endpoint.orchestration-metrics",
+      "type": "org.fireflyframework.orchestration.core.observability.OrchestrationMetricsEndpoint",
+      "sourceType": "org.fireflyframework.orchestration.core.observability.OrchestrationMetricsEndpoint"
     }
   ],
   "properties": [
+    {
+      "name": "firefly.orchestration.backpressure.batch-size",
+      "type": "java.lang.Integer",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$BackpressureProperties",
+      "defaultValue": 10
+    },
+    {
+      "name": "firefly.orchestration.backpressure.circuit-breaker.failure-threshold",
+      "type": "java.lang.Integer",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$CircuitBreakerProperties",
+      "defaultValue": 5
+    },
+    {
+      "name": "firefly.orchestration.backpressure.circuit-breaker.half-open-max-calls",
+      "type": "java.lang.Integer",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$CircuitBreakerProperties",
+      "defaultValue": 3
+    },
+    {
+      "name": "firefly.orchestration.backpressure.circuit-breaker.recovery-timeout",
+      "type": "java.time.Duration",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$CircuitBreakerProperties",
+      "defaultValue": "30s"
+    },
+    {
+      "name": "firefly.orchestration.backpressure.strategy",
+      "type": "java.lang.String",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$BackpressureProperties",
+      "defaultValue": "adaptive"
+    },
     {
       "name": "firefly.orchestration.dlq.enabled",
       "type": "java.lang.Boolean",
       "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$DlqProperties",
       "defaultValue": true
+    },
+    {
+      "name": "firefly.orchestration.eventsourcing.projection-poll-interval",
+      "type": "java.time.Duration",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$EventSourcingProperties",
+      "defaultValue": "5s"
+    },
+    {
+      "name": "firefly.orchestration.eventsourcing.snapshot-interval",
+      "type": "java.lang.Integer",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$EventSourcingProperties",
+      "defaultValue": 100
     },
     {
       "name": "firefly.orchestration.health.enabled",
@@ -151,6 +228,12 @@
       "defaultValue": true
     },
     {
+      "name": "firefly.orchestration.saga.compensation-error-handler",
+      "type": "java.lang.String",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$SagaProperties",
+      "defaultValue": "default"
+    },
+    {
       "name": "firefly.orchestration.saga.compensation-policy",
       "type": "org.fireflyframework.orchestration.core.model.CompensationPolicy",
       "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$SagaProperties",
@@ -175,6 +258,18 @@
       "defaultValue": 4
     },
     {
+      "name": "firefly.orchestration.tcc.composition.compensation-policy",
+      "type": "org.fireflyframework.orchestration.core.model.CompensationPolicy",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$TccCompositionProperties",
+      "defaultValue": "strict-sequential"
+    },
+    {
+      "name": "firefly.orchestration.tcc.composition.enabled",
+      "type": "java.lang.Boolean",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$TccCompositionProperties",
+      "defaultValue": true
+    },
+    {
       "name": "firefly.orchestration.tcc.default-timeout",
       "type": "java.time.Duration",
       "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$TccProperties",
@@ -193,10 +288,48 @@
       "defaultValue": true
     },
     {
+      "name": "firefly.orchestration.validation.enabled",
+      "type": "java.lang.Boolean",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$ValidationProperties",
+      "defaultValue": true
+    },
+    {
+      "name": "firefly.orchestration.validation.fail-on-warning",
+      "type": "java.lang.Boolean",
+      "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$ValidationProperties",
+      "defaultValue": false
+    },
+    {
       "name": "firefly.orchestration.workflow.enabled",
       "type": "java.lang.Boolean",
       "sourceType": "org.fireflyframework.orchestration.config.OrchestrationProperties$WorkflowProperties",
       "defaultValue": true
+    },
+    {
+      "name": "management.endpoint.orchestration-metrics.access",
+      "type": "org.springframework.boot.actuate.endpoint.Access",
+      "description": "Permitted level of access for the orchestration-metrics endpoint.",
+      "sourceType": "org.fireflyframework.orchestration.core.observability.OrchestrationMetricsEndpoint",
+      "defaultValue": "unrestricted"
+    },
+    {
+      "name": "management.endpoint.orchestration-metrics.cache.time-to-live",
+      "type": "java.time.Duration",
+      "description": "Maximum time that a response can be cached.",
+      "sourceType": "org.fireflyframework.orchestration.core.observability.OrchestrationMetricsEndpoint",
+      "defaultValue": "0ms"
+    },
+    {
+      "name": "management.endpoint.orchestration-metrics.enabled",
+      "type": "java.lang.Boolean",
+      "description": "Whether to enable the orchestration-metrics endpoint.",
+      "sourceType": "org.fireflyframework.orchestration.core.observability.OrchestrationMetricsEndpoint",
+      "defaultValue": true,
+      "deprecated": true,
+      "deprecation": {
+        "replacement": "management.endpoint.orchestration-metrics.access",
+        "since": "3.4.0"
+      }
     }
   ],
   "hints": [],
