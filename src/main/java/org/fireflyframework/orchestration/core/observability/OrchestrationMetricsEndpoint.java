@@ -70,7 +70,7 @@ public class OrchestrationMetricsEndpoint {
      * @param pattern the execution pattern name (WORKFLOW, SAGA, or TCC)
      */
     @ReadOperation
-    public Map<String, Object> metrics(@Selector String pattern) {
+    public Map<String, Object> metricsByPattern(@Selector String pattern) {
         String normalized = pattern.toUpperCase();
         // Validate pattern
         try {

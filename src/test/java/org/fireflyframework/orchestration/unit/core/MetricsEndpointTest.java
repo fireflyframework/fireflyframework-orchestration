@@ -118,7 +118,7 @@ class MetricsEndpointTest {
         metrics.onStepFailed("payment-saga", "c2", "charge", new RuntimeException("fail"), 2);
 
         // Filter by WORKFLOW
-        Map<String, Object> result = endpoint.metrics("WORKFLOW");
+        Map<String, Object> result = endpoint.metricsByPattern("WORKFLOW");
 
         assertThat(result.get("pattern")).isEqualTo("WORKFLOW");
 
@@ -129,7 +129,7 @@ class MetricsEndpointTest {
 
         // SAGA metrics should not appear in WORKFLOW filter
         // Filter by SAGA
-        Map<String, Object> sagaResult = endpoint.metrics("saga"); // test case-insensitivity
+        Map<String, Object> sagaResult = endpoint.metricsByPattern("saga"); // test case-insensitivity
         assertThat(sagaResult.get("pattern")).isEqualTo("SAGA");
 
         Map<String, Object> sagaExecutions = (Map<String, Object>) sagaResult.get("executions");
@@ -137,7 +137,7 @@ class MetricsEndpointTest {
         assertThat((double) sagaExecutions.get("completed")).isEqualTo(1.0);
 
         // Unknown pattern returns error
-        Map<String, Object> unknown = endpoint.metrics("UNKNOWN");
+        Map<String, Object> unknown = endpoint.metricsByPattern("UNKNOWN");
         assertThat(unknown).containsKey("error");
     }
 }
