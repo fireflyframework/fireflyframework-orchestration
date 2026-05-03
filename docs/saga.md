@@ -1071,4 +1071,4 @@ if (registry.has("order-fulfillment")) {
 [← Back to Index](README.md) | [Previous: Workflow Pattern](workflow.md) | [Next: TCC Pattern →](tcc.md)
 
 ---
-Copyright 2026 Firefly Software Solutions Inc. Licensed under Apache 2.0.
+Copyright 2026 Firefly Software Foundation. Licensed under Apache 2.0.

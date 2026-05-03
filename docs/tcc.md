@@ -1019,4 +1019,4 @@ String mermaid = viz.toMermaid(composition);
 
 [← Back to Index](README.md) | [Previous: Saga Pattern](saga.md) | [Next: Core Infrastructure →](core-infrastructure.md)
 
-*Copyright 2024-2026 Firefly Software Solutions Inc. Licensed under the Apache License, Version 2.0.*
+*Copyright 2024-2026 Firefly Software Foundation. Licensed under the Apache License, Version 2.0.*

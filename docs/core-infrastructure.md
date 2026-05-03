@@ -1752,4 +1752,4 @@ Implements `ExecutionPersistenceProvider` with full event-sourcing semantics.
 [← Back to Index](README.md) | [Previous: TCC Pattern](tcc.md) | [Next: Configuration →](configuration.md)
 
 ---
-Copyright 2026 Firefly Software Solutions Inc. Licensed under Apache 2.0.
+Copyright 2026 Firefly Software Foundation. Licensed under Apache 2.0.

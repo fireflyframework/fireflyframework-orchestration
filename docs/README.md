@@ -102,4 +102,4 @@ New to Firefly Orchestration? Start with the **[Tutorial: Fintech Payment Proces
 
 ---
 
-*Copyright 2024-2026 Firefly Software Solutions Inc. Licensed under the Apache License, Version 2.0.*
+*Copyright 2024-2026 Firefly Software Foundation. Licensed under the Apache License, Version 2.0.*
