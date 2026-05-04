@@ -119,6 +119,9 @@ public class OrchestrationProperties {
     @NestedConfigurationProperty
     private EventSourcingProperties eventsourcing = new EventSourcingProperties();
 
+    @NestedConfigurationProperty
+    private EventsProperties events = new EventsProperties();
+
     // --- Getters and Setters ---
 
     public WorkflowProperties getWorkflow() { return workflow; }
@@ -165,6 +168,9 @@ public class OrchestrationProperties {
 
     public EventSourcingProperties getEventsourcing() { return eventsourcing; }
     public void setEventsourcing(EventSourcingProperties eventsourcing) { this.eventsourcing = eventsourcing; }
+
+    public EventsProperties getEvents() { return events; }
+    public void setEvents(EventsProperties events) { this.events = events; }
 
     // --- Nested property classes ---
 
@@ -357,5 +363,25 @@ public class OrchestrationProperties {
 
         public Duration getProjectionPollInterval() { return projectionPollInterval; }
         public void setProjectionPollInterval(Duration projectionPollInterval) { this.projectionPollInterval = projectionPollInterval; }
+    }
+
+    /**
+     * Configuration for bridging orchestration events (saga/workflow/TCC step events,
+     * execution lifecycle) onto the {@code fireflyframework-eda} unified event publisher.
+     *
+     * <p>Disabled by default to preserve backward compatibility — services that have not
+     * configured EDA will continue to use {@code NoOpEventPublisher} and silently drop
+     * orchestration events. Set {@code enabled=true} to activate the bridge and publish
+     * events to the configured EDA broker (Kafka, RabbitMQ, etc.).
+     */
+    public static class EventsProperties {
+        private boolean enabled = false;
+        private String defaultTopic = "";
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public String getDefaultTopic() { return defaultTopic; }
+        public void setDefaultTopic(String defaultTopic) { this.defaultTopic = defaultTopic; }
     }
 }
