@@ -16,17 +16,20 @@
 
 package org.fireflyframework.orchestration.config;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.fireflyframework.orchestration.core.persistence.ExecutionPersistenceProvider;
 import org.fireflyframework.orchestration.persistence.cache.CachePersistenceProvider;
 import org.fireflyframework.orchestration.persistence.eventsourced.EventSourcedPersistenceProvider;
 import org.fireflyframework.orchestration.persistence.redis.RedisPersistenceProvider;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.data.redis.RedisReactiveAutoConfiguration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -45,8 +48,46 @@ import org.springframework.context.annotation.Configuration;
  * from {@link OrchestrationAutoConfiguration} is used.
  */
 @Slf4j
-@AutoConfiguration(before = OrchestrationAutoConfiguration.class)
+// IMPORTANT: `after = RedisReactiveAutoConfiguration.class` is required so that
+// the @ConditionalOnBean(ReactiveRedisTemplate.class) on RedisPersistenceConfig
+// is evaluated AFTER Spring Boot has registered the ReactiveRedisTemplate bean.
+// Without it, the condition silently fails and the in-memory fallback wins even
+// when firefly.orchestration.persistence.provider=redis is set.
+@AutoConfiguration(
+        before = OrchestrationAutoConfiguration.class,
+        after = RedisReactiveAutoConfiguration.class)
 public class OrchestrationPersistenceAutoConfiguration {
+
+    /**
+     * Dedicated ObjectMapper for orchestration state persistence (Redis, event-sourced).
+     *
+     * <p>{@link org.fireflyframework.orchestration.core.persistence.ExecutionState#report()}
+     * is an {@link java.util.Optional}, which requires {@code jackson-datatype-jdk8} to
+     * serialize. We cannot rely on the shared application {@code ObjectMapper} bean
+     * because other framework modules (e.g. {@code fireflyframework-eda}) declare a
+     * {@code @Bean @ConditionalOnMissingBean ObjectMapper} that registers only
+     * {@code JavaTimeModule}, and may win the auto-configuration race over Spring Boot's
+     * own {@code Jackson2ObjectMapperBuilder}, leaving the persistence path without
+     * {@code Jdk8Module}.
+     *
+     * <p>This dedicated mapper invokes {@code findAndRegisterModules()} to auto-discover
+     * every Jackson module on the classpath (Jdk8, JavaTime, Parameter Names, etc.),
+     * matching the pattern already used by {@code SagaPersistenceAutoConfiguration} and
+     * {@code EventSourcingAutoConfiguration} elsewhere in the framework.
+     */
+    @Bean
+    @ConditionalOnMissingBean(name = "orchestrationPersistenceObjectMapper")
+    public ObjectMapper orchestrationPersistenceObjectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.findAndRegisterModules();
+        // ExecutionState is a record exposing derived getters (isTerminal, isSuccess,
+        // isFailed) which Jackson serializes as fields but cannot map back to the
+        // canonical constructor on read. Disabling FAIL_ON_UNKNOWN_PROPERTIES makes
+        // findById() round-trips work without polluting the record with @JsonIgnore
+        // annotations on every derived accessor.
+        mapper.disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+        return mapper;
+    }
 
     @Configuration
     @ConditionalOnClass(name = "org.fireflyframework.cache.core.CacheAdapter")
@@ -75,7 +116,7 @@ public class OrchestrationPersistenceAutoConfiguration {
         @SuppressWarnings("unchecked")
         public ExecutionPersistenceProvider redisPersistenceProvider(
                 org.springframework.data.redis.core.ReactiveRedisTemplate<String, String> redisTemplate,
-                ObjectMapper objectMapper,
+                @Qualifier("orchestrationPersistenceObjectMapper") ObjectMapper objectMapper,
                 OrchestrationProperties properties) {
             log.info("[orchestration] Using Redis-based persistence provider");
             return new RedisPersistenceProvider(redisTemplate, objectMapper,
@@ -94,7 +135,7 @@ public class OrchestrationPersistenceAutoConfiguration {
         @ConditionalOnMissingBean(ExecutionPersistenceProvider.class)
         public ExecutionPersistenceProvider eventSourcedPersistenceProvider(
                 org.fireflyframework.eventsourcing.store.EventStore eventStore,
-                ObjectMapper objectMapper) {
+                @Qualifier("orchestrationPersistenceObjectMapper") ObjectMapper objectMapper) {
             log.info("[orchestration] Using event-sourced persistence provider");
             return new EventSourcedPersistenceProvider(eventStore, objectMapper);
         }

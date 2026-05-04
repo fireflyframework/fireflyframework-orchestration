@@ -62,6 +62,16 @@
             <groupId>com.fasterxml.jackson.datatype</groupId>
             <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
+        <!--
+          Required by RedisPersistenceProvider / EventSourcedPersistenceProvider:
+          ExecutionState.report is Optional<ExecutionReport> and cannot be
+          serialized without Jdk8Module. Declared explicitly so the contract
+          survives BOM changes (it is also pulled transitively via Spring Boot).
+        -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jdk8</artifactId>
+        </dependency>
 
         <!-- Jakarta Annotations -->
         <dependency>
