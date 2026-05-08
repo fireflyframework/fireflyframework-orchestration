@@ -111,8 +111,9 @@ public class WorkflowAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public WorkflowQueryService workflowQueryService(ExecutionPersistenceProvider persistence) {
-        return new WorkflowQueryService(persistence);
+    public WorkflowQueryService workflowQueryService(ExecutionPersistenceProvider persistence,
+                                                      ObjectProvider<WorkflowRegistry> registryProvider) {
+        return new WorkflowQueryService(persistence, registryProvider.getIfAvailable());
     }
 
     @Bean
