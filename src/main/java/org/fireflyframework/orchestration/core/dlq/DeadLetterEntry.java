@@ -20,6 +20,7 @@ import org.fireflyframework.orchestration.core.model.ExecutionPattern;
 import org.fireflyframework.orchestration.core.model.ExecutionStatus;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -44,8 +45,21 @@ public record DeadLetterEntry(
                 UUID.randomUUID().toString(), executionName, correlationId, pattern, stepId, statusAtFailure,
                 error != null ? error.getMessage() : null,
                 error != null ? error.getClass().getName() : null,
-                input != null ? Map.copyOf(input) : Map.of(),
+                snapshotInput(input),
                 0, Instant.now(), null);
+    }
+
+    /**
+     * Defensive snapshot of the input map for diagnostic purposes.
+     * Tolerates null values (which {@link Map#copyOf(Map)} would reject)
+     * by returning a {@link LinkedHashMap} that preserves insertion order
+     * and accepts null values. Returns an empty map for a null input.
+     */
+    private static Map<String, Object> snapshotInput(Map<String, Object> input) {
+        if (input == null || input.isEmpty()) {
+            return Map.of();
+        }
+        return new LinkedHashMap<>(input);
     }
 
     public DeadLetterEntry withRetry() {
