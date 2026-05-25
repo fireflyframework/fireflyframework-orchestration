@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.fireflyframework</groupId>
         <artifactId>fireflyframework-parent</artifactId>
-        <version>26.05.05</version>
+        <version>26.05.07</version>
         <relativePath/>
     </parent>
 
@@ -163,13 +163,6 @@
         <dependency>
             <groupId>io.github.resilience4j</groupId>
             <artifactId>resilience4j-micrometer</artifactId>
-            <optional>true</optional>
-        </dependency>
-
-        <!-- Optional: Micrometer -->
-        <dependency>
-            <groupId>io.micrometer</groupId>
-            <artifactId>micrometer-registry-prometheus</artifactId>
             <optional>true</optional>
         </dependency>
 

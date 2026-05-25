@@ -322,4 +322,4 @@ Visible at `/actuator/health` with details under `orchestration`.
 [← Back to Index](README.md) | [Previous: Core Infrastructure](core-infrastructure.md) | [Next: Recipes & Production →](recipes-and-production.md)
 
 ---
-Copyright 2026 Firefly Software Solutions Inc. Licensed under Apache 2.0.
+Copyright 2026 Firefly Software Foundation. Licensed under Apache 2.0.
