@@ -1,92 +1,140 @@
-# Firefly Framework Orchestration
+# Firefly Framework - Orchestration
 
-**A reactive orchestration engine for distributed transactions in Spring Boot applications.**
+[![CI](https://github.com/fireflyframework/fireflyframework-orchestration/actions/workflows/ci.yml/badge.svg)](https://github.com/fireflyframework/fireflyframework-orchestration/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Java](https://img.shields.io/badge/Java-21%2B-orange.svg)](https://openjdk.org)
+[![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.x-green.svg)](https://spring.io/projects/spring-boot)
 
-Firefly Orchestration provides three coordination patterns -- Workflow, Saga, and TCC (Try-Confirm-Cancel) -- in a single module built on Project Reactor. All three share a common core: execution context, argument injection, retry policies, persistence, observability, event integration, scheduling, and dead-letter routing.
-
-Define orchestrations using annotations (`@Saga`, `@Workflow`, `@Tcc`) or a fluent builder DSL. The engine handles DAG-based execution ordering, automatic compensation on failure, per-step checkpointing, and recovery of stale executions.
-
-```xml
-<dependency>
-    <groupId>org.fireflyframework</groupId>
-    <artifactId>fireflyframework-orchestration</artifactId>
-    <version>26.02.07</version>
-</dependency>
-```
-
-> Requires **Java 25+**, **Spring Boot 3.x**, and **Project Reactor 3.x**. Licensed under **Apache 2.0**.
+> Reactive orchestration engine for Spring Boot — Workflow, Saga, and TCC distributed-transaction patterns in one module, built on Project Reactor.
 
 ---
 
 ## Table of Contents
 
-- [Why Firefly Orchestration](#why-firefly-orchestration)
+- [Overview](#overview)
 - [Features](#features)
-- [Getting Started](#getting-started)
-  - [Saga Example (Annotations)](#saga-example-annotations)
-  - [Saga Example (Builder DSL)](#saga-example-builder-dsl)
-  - [TCC Example](#tcc-example)
-  - [Workflow Example](#workflow-example)
-- [Architecture](#architecture)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+  - [Saga (annotations)](#saga-annotations)
+  - [Saga (builder DSL)](#saga-builder-dsl)
+  - [TCC](#tcc)
+  - [Workflow](#workflow)
 - [Pattern Selection Guide](#pattern-selection-guide)
 - [Event Integration](#event-integration)
 - [Scheduling](#scheduling)
-- [Configuration Reference](#configuration-reference)
+- [Configuration](#configuration)
 - [Documentation](#documentation)
+- [Contributing](#contributing)
 - [License](#license)
 
----
+## Overview
 
-## Why Firefly Orchestration
+`fireflyframework-orchestration` is the Firefly Framework's unified engine for coordinating multi-step,
+distributed operations. It provides three coordination patterns — **Workflow**, **Saga**, and
+**TCC (Try-Confirm-Cancel)** — in a single module, all built on Project Reactor and all sharing one
+common core: execution context, argument injection, retry policies, persistence, observability,
+event integration, scheduling, recovery, and dead-letter routing.
 
-**One module, three patterns.** Instead of adopting separate libraries for workflow orchestration, saga coordination, and TCC transactions, Firefly Orchestration provides all three sharing a common core. Learn one set of concepts -- execution context, argument injection, retry policies, persistence -- and apply them across all patterns.
+Distributed business processes rarely fit a single local transaction. Inventory lives in one service,
+payments in another, shipping in a third. When a step fails partway through, you need a principled way
+to roll back, retry, or compensate. This module gives you that, with a choice of consistency model:
+**Workflow** for fire-and-forward pipelines (no rollback), **Saga** for eventual consistency with
+automatic compensation, and **TCC** for strong consistency via soft-locked reservations and an explicit
+confirm/cancel phase.
 
-**Reactive from top to bottom.** Every engine method returns `Mono` or `Flux`. There are no blocking calls, no thread-pool exhaustion under load, and natural backpressure handling. Thousands of concurrent orchestrations run efficiently on a small thread pool.
+Within the framework this is the **domain-tier orchestration layer**: it sits above core-tier
+microservices and composes their calls into resilient business transactions. Orchestrations are defined
+either with annotations (`@Saga`, `@Workflow`, `@Tcc`) or a fluent builder DSL (`SagaBuilder`,
+`WorkflowBuilder`, `TccBuilder`), and the engine handles DAG-based execution ordering (Kahn's algorithm
+with parallel layers), automatic compensation on failure, per-step checkpointing, and recovery of stale
+executions. It depends on `fireflyframework-kernel` (shared abstractions and exception hierarchy) and
+`fireflyframework-observability` (metrics, tracing, health, structured logging), and optionally
+integrates with `fireflyframework-eda` (event triggering and step-level event publishing),
+`fireflyframework-cache` and `fireflyframework-eventsourcing` (durable persistence backends), and
+Resilience4j (circuit breakers, rate limiters, bulkheads).
 
-**Event-driven by design.** Orchestrations can be triggered by external events via `triggerEventType` and `EventGateway`, and can publish events when steps complete via `@StepEvent`, `@TccEvent`, and `publishEvents`. This lets orchestrations participate in larger event-driven architectures without tight coupling.
-
-**Zero-config to production-ready.** Spring Boot auto-configuration provides sensible defaults for development (in-memory persistence, SLF4J logging, DLQ enabled). For production, plug in Redis persistence, Micrometer metrics, distributed tracing, and Resilience4j circuit breakers through configuration properties and Spring beans.
-
----
+The engine is **reactive from top to bottom** — every method returns `Mono` or `Flux`, with no blocking
+calls — and **zero-config to production-ready**: Spring Boot auto-configuration ships sensible
+development defaults (in-memory persistence, SLF4J logging, DLQ enabled), and production hardening
+(Redis/cache/event-sourced persistence, Micrometer metrics, distributed tracing, resilience) is enabled
+purely through `firefly.orchestration.*` properties and Spring beans.
 
 ## Features
 
-### Core Capabilities
+- **Three patterns, one core** — Workflow, Saga, and TCC share execution context, argument injection,
+  retry policies, persistence, observability, and event integration. Learn the concepts once, apply them
+  everywhere via `WorkflowEngine`, `SagaEngine`, and `TccEngine`.
+- **DAG-based execution** — Kahn's algorithm produces a topological order with parallel layer support, so
+  independent steps run concurrently.
+- **Two definition styles** — annotation-driven (`@Saga`/`@SagaStep`, `@Workflow`/`@WorkflowStep`,
+  `@Tcc`/`@TccParticipant`) and a programmatic builder DSL (`SagaBuilder`, `WorkflowBuilder`, `TccBuilder`).
+- **Automatic compensation** — five compensation policies (`STRICT_SEQUENTIAL`, `GROUPED_PARALLEL`,
+  `RETRY_WITH_BACKOFF`, `CIRCUIT_BREAKER`, `BEST_EFFORT_PARALLEL`) with per-step compensation handlers.
+- **TCC try/confirm/cancel** — soft-locked reservations with strong consistency and an explicit
+  two-phase confirm/cancel via `TccEngine`.
+- **Retry with backoff** — per-step retry policies with exponential backoff and optional jitter.
+- **Fan-out (ExpandEach)** — dynamically clone saga steps per input item.
+- **12 argument-injection annotations** — `@Input`, `@FromStep`, `@FromTry`, `@Variable`, `@Header`,
+  `@CorrelationId`, and more, resolved against the shared `ExecutionContext`.
+- **Workflow lifecycle** — suspend, resume, and cancel running workflows; signal and timer gates
+  (`@WaitForSignal`, `@WaitForTimer`); dry-run mode; SpEL step conditions; per-step compensation.
+- **Durable workflow primitives** — child workflows, continue-as-new, query handlers, and search.
+- **Event integration** — inbound event-driven triggering via `triggerEventType` + `EventGateway`, and
+  outbound step-level publishing (`@StepEvent`, `@TccEvent`, `publishEvents`).
+- **Lifecycle callbacks** — `@OnWorkflowComplete`/`@OnSagaComplete`/`@OnTccComplete` and error variants,
+  with priority ordering, error-type filtering, error suppression, and result injection.
+- **Pluggable persistence** — in-memory (default), Redis, cache, and event-sourced adapters selected by
+  the `persistence.provider` property.
+- **Cron scheduling** — `@ScheduledWorkflow`, `@ScheduledSaga`, `@ScheduledTcc` with `cron`, `fixedRate`,
+  `fixedDelay`, `initialDelay`, `zone`, `enabled`, and `input`.
+- **Backpressure & resilience** — adaptive backpressure strategy with a built-in circuit breaker, plus
+  optional Resilience4j (circuit breaker, rate limiter, bulkhead, time limiter).
+- **Recovery & DLQ** — automatic recovery of stale executions and a dead-letter queue for failed runs.
+- **Full observability** — structured logging, Micrometer metrics, and distributed tracing via the
+  Observation API, plus an optional REST API and Actuator health indicator.
 
-- **DAG-based execution** -- Kahn's algorithm for topological ordering with parallel layer support
-- **Five compensation policies** -- STRICT_SEQUENTIAL, GROUPED_PARALLEL, RETRY_WITH_BACKOFF, CIRCUIT_BREAKER, BEST_EFFORT_PARALLEL
-- **Two definition styles** -- annotation-driven (`@Saga`, `@Workflow`, `@Tcc`) and programmatic builder DSL (`SagaBuilder`, `WorkflowBuilder`, `TccBuilder`)
-- **Retry with backoff** -- per-step retry policies with exponential backoff and jitter
-- **Fan-out (ExpandEach)** -- dynamically clone saga steps per input item
+## Requirements
 
-### Event Integration
+- Java 21+ (Java 25 recommended)
+- Spring Boot 3.x
+- Maven 3.9+
+- Project Reactor 3.x (provided transitively via `spring-boot-starter-webflux`)
+- Optional runtime backends, depending on configuration:
+  - A **Redis** server — when `persistence.provider: redis`
+  - A `fireflyframework-cache` provider — when `persistence.provider: cache`
+  - `fireflyframework-eventsourcing` (R2DBC datastore) — when `persistence.provider: event-sourced`
+  - A `fireflyframework-eda` transport (e.g. Kafka, RabbitMQ) — for event triggering / publishing
 
-- **Event-driven triggering** -- `triggerEventType` routes external events through `EventGateway` to start executions (annotation and builder)
-- **Step-level event publishing** -- `@StepEvent` (Saga), `@TccEvent` (TCC), `publishEvents` (Workflow)
-- **Lifecycle callbacks** -- `@OnWorkflowComplete`, `@OnSagaComplete`, `@OnTccComplete` and error variants with priority ordering, error type filtering, error suppression, and result injection
+## Installation
 
-### Workflow-Specific
+Add the dependency. The version is managed by the Firefly Framework parent/BOM, so you do not declare it
+explicitly:
 
-- **Lifecycle management** -- suspend, resume, and cancel running workflows
-- **Signal and timer gates** -- `@WaitForSignal` and `@WaitForTimer` for external event coordination and timed delays
-- **Dry-run mode** -- traverse the DAG without executing step logic (all steps marked SKIPPED)
-- **SpEL conditions** -- conditional step execution based on runtime expressions
-- **Compensatable steps** -- per-step compensation with `compensatable` and `compensationMethod`
+```xml
+<dependency>
+    <groupId>org.fireflyframework</groupId>
+    <artifactId>fireflyframework-orchestration</artifactId>
+    <!-- version managed by fireflyframework-parent / BOM -->
+</dependency>
+```
 
-### Infrastructure
+If your project inherits the Firefly parent POM, the version is supplied automatically:
 
-- **Pluggable persistence** -- InMemory (default), Redis, Cache, and Event-Sourced adapters
-- **Full observability** -- structured logging, 8 Micrometer metrics, distributed tracing via Observation API
-- **Dead-letter queue** -- automatic DLQ capture for failed executions with retry tracking
-- **Cron scheduling** -- `@ScheduledWorkflow`, `@ScheduledSaga`, `@ScheduledTcc` with cron, fixedDelay, fixedRate, zone, initialDelay, and input
-- **12 argument injection annotations** -- `@Input`, `@FromStep`, `@FromTry`, `@Variable`, `@Header`, `@CorrelationId`, and more
-- **Spring Boot auto-configuration** -- zero-config defaults, full customization via properties
+```xml
+<parent>
+    <groupId>org.fireflyframework</groupId>
+    <artifactId>fireflyframework-parent</artifactId>
+    <version>26.05.08</version>
+</parent>
+```
 
----
+Optional backends are pulled in only when you add their dependency (Redis, cache, event sourcing,
+EDA, Resilience4j) — the module declares them `optional`, so nothing ships unless you opt in.
 
-## Getting Started
+## Quick Start
 
-### Saga Example (Annotations)
+### Saga (annotations)
 
 ```java
 @Saga(name = "OrderSaga")
@@ -117,7 +165,7 @@ public class OrderSaga {
 }
 ```
 
-Execute it:
+Execute it through the injected `SagaEngine`:
 
 ```java
 sagaEngine.execute("OrderSaga", StepInputs.of("reserve", orderRequest))
@@ -130,7 +178,7 @@ sagaEngine.execute("OrderSaga", StepInputs.of("reserve", orderRequest))
     });
 ```
 
-### Saga Example (Builder DSL)
+### Saga (builder DSL)
 
 ```java
 SagaDefinition def = SagaBuilder.saga("TransferFunds")
@@ -150,7 +198,7 @@ SagaDefinition def = SagaBuilder.saga("TransferFunds")
 sagaEngine.execute(def, StepInputs.of("debit", transferRequest));
 ```
 
-### TCC Example
+### TCC
 
 ```java
 TccDefinition def = TccBuilder.tcc("PaymentTransaction")
@@ -170,12 +218,12 @@ TccDefinition def = TccBuilder.tcc("PaymentTransaction")
 
 tccEngine.execute(def, TccInputs.of(Map.of("debit", request, "credit", request)))
     .subscribe(result -> {
-        if (result.isConfirmed()) log.info("Transaction confirmed");
+        if (result.isConfirmed())   log.info("Transaction confirmed");
         else if (result.isCanceled()) log.warn("Transaction canceled");
     });
 ```
 
-### Workflow Example
+### Workflow
 
 ```java
 @Workflow(id = "OrderProcessing", version = "1.0",
@@ -200,88 +248,42 @@ public class OrderProcessingWorkflow {
 }
 ```
 
----
-
-## Architecture
-
-```
-+--------------------------------------------------------------------+
-|                        Your Application                            |
-|  @Saga  @Workflow  @Tcc    OR    SagaBuilder  WorkflowBuilder      |
-+----------------+----------------------------------+----------------+
-                 |  register                         |  execute
-+----------------v----------------------------------v----------------+
-|                         Engine Layer                               |
-|   WorkflowEngine       SagaEngine           TccEngine              |
-|   WorkflowExecutor     SagaExecOrchestrator TccExecOrchestrator    |
-|                         SagaCompensator                            |
-+--------+----------------------------+-------------------+----------+
-         |                            |                   |
-+--------v----------------------------v-------------------v----------+
-|                          Core Layer                                |
-|   ExecutionContext    StepInvoker    ArgumentResolver               |
-|   TopologyBuilder     RetryPolicy    OrchestrationEvents           |
-|   ExecutionState      DeadLetterService    RecoveryService         |
-+--------+------------------------------------------+---------+-----+
-         |                                          |         |
-+--------v-----------------+   +--------------------v-+  +----v----+
-|    Persistence Layer     |   |  Observability Layer  |  |  Events |
-|  InMemory (default)      |   |  Logger / Metrics     |  |  Gateway|
-|  Redis / Cache / ES      |   |  Tracing              |  |  Publish|
-+--------------------------+   +-----------------------+  +---------+
-```
-
----
-
 ## Pattern Selection Guide
 
 ```
 Need to undo on failure?
-+-- No  -->  WORKFLOW
-+-- Yes
-    +-- Need resource reservation/locking?  -->  TCC
-    +-- Compensating actions sufficient?    -->  SAGA
+├─ No  ──▶  WORKFLOW
+└─ Yes
+   ├─ Need resource reservation / locking?  ──▶  TCC
+   └─ Compensating actions sufficient?       ──▶  SAGA
 ```
 
-| Aspect | Workflow | Saga | TCC |
-|--------|----------|------|-----|
-| Consistency | Eventual | Eventual | Strong |
-| Isolation | None | None | Soft-lock |
-| Rollback | None (or per-step compensation) | Automatic compensation | Cancel phase |
-| Use case | Pipelines, ETL, deployments | Orders, transfers, bookings | Reservations, holds, debits |
-
----
+| Aspect       | Workflow                          | Saga                    | TCC                     |
+|--------------|-----------------------------------|-------------------------|-------------------------|
+| Consistency  | Eventual                          | Eventual                | Strong                  |
+| Isolation    | None                              | None                    | Soft-lock               |
+| Rollback     | None (or per-step compensation)   | Automatic compensation  | Cancel phase            |
+| Use case     | Pipelines, ETL, deployments       | Orders, transfers       | Reservations, holds     |
 
 ## Event Integration
 
-### Inbound: Event-Driven Triggering
-
-Any orchestration can be triggered by an external event using `triggerEventType`:
-
-```java
-// Annotation
-@Saga(name = "OrderSaga", triggerEventType = "OrderCreated")
-
-// Builder
-SagaBuilder.saga("OrderSaga").triggerEventType("OrderCreated")
-TccBuilder.tcc("PaymentTcc").triggerEventType("PaymentRequested")
-new WorkflowBuilder("Pipeline").triggerEventType("DataIngested")
-```
-
-Route events through the `EventGateway`:
+**Inbound — event-driven triggering.** Any orchestration can be started by an external event using
+`triggerEventType` (annotation or builder); route events through the `EventGateway`:
 
 ```java
-eventGateway.routeEvent("OrderCreated", Map.of("orderId", "ORD-123"))
-    .subscribe();
+@Saga(name = "OrderSaga", triggerEventType = "OrderCreated")              // annotation
+SagaBuilder.saga("OrderSaga").triggerEventType("OrderCreated")            // builder
+
+eventGateway.routeEvent("OrderCreated", Map.of("orderId", "ORD-123")).subscribe();
 ```
 
-### Outbound: Step-Level Events
+**Outbound — step-level events.**
 
 - **Saga:** `@StepEvent(topic, type, key)` or builder `.stepEvent(topic, type, key)`
 - **TCC:** `@TccEvent(topic, eventType, key)` or builder `.event(topic, eventType, key)`
 - **Workflow:** `publishEvents = true` on `@Workflow` or builder `.publishEvents(true)`
 
----
+Event integration is delivered over the `fireflyframework-eda` abstraction (optional dependency).
 
 ## Scheduling
 
@@ -291,24 +293,25 @@ All three patterns support scheduled execution with full parity:
 @Saga(name = "CleanupSaga")
 @ScheduledSaga(cron = "0 0 2 * * *", zone = "America/New_York",
                enabled = true, input = "{\"daysOld\": 30}")
-public class CleanupSaga { ... }
+public class CleanupSaga { /* ... */ }
 
 @Tcc(name = "ReconciliationTcc")
 @ScheduledTcc(fixedRate = 60000, initialDelay = 5000)
-public class ReconciliationTcc { ... }
+public class ReconciliationTcc { /* ... */ }
 
 @Workflow(id = "ReportWorkflow")
 @ScheduledWorkflow(fixedDelay = 3600000, zone = "UTC")
-public class ReportWorkflow { ... }
+public class ReportWorkflow { /* ... */ }
 ```
 
-All scheduling annotations support: `cron`, `fixedRate`, `fixedDelay`, `initialDelay`, `zone`, `enabled`, `input`, and `description`.
+Every scheduling annotation supports `cron`, `fixedRate`, `fixedDelay`, `initialDelay`, `zone`,
+`enabled`, `input`, and `description`.
 
----
+## Configuration
 
-## Configuration Reference
-
-All properties use the `firefly.orchestration` prefix:
+All properties live under the `firefly.orchestration` prefix and are bound by `OrchestrationProperties`.
+The defaults below are the real values from the `@ConfigurationProperties` class — every value shown is
+the engine default, so a zero-config application runs in-memory out of the box.
 
 ```yaml
 firefly:
@@ -317,44 +320,77 @@ firefly:
       enabled: true
     saga:
       enabled: true
-      compensation-policy: STRICT_SEQUENTIAL
+      compensation-policy: STRICT_SEQUENTIAL   # STRICT_SEQUENTIAL | GROUPED_PARALLEL | RETRY_WITH_BACKOFF | CIRCUIT_BREAKER | BEST_EFFORT_PARALLEL
       default-timeout: 5m
+      compensation-error-handler: default
     tcc:
       enabled: true
       default-timeout: 30s
+      composition:
+        enabled: true
+        compensation-policy: STRICT_SEQUENTIAL
     persistence:
       provider: in-memory          # in-memory | redis | cache | event-sourced
       key-prefix: "orchestration:"
+      key-ttl:                      # unset = no TTL
       retention-period: 7d
       cleanup-interval: 1h
-    scheduling:
-      thread-pool-size: 4
     recovery:
       enabled: true
       stale-threshold: 1h
+    scheduling:
+      thread-pool-size: 4
+    rest:
+      enabled: true
+    health:
+      enabled: true
     metrics:
       enabled: true
     tracing:
       enabled: true
     dlq:
       enabled: true
-    rest:
-      enabled: true
-    health:
-      enabled: true
     resilience:
       enabled: true
+    backpressure:
+      strategy: adaptive
+      batch-size: 10
+      circuit-breaker:
+        failure-threshold: 5
+        recovery-timeout: 30s
+        half-open-max-calls: 3
+    validation:
+      enabled: true
+      fail-on-warning: false
+    eventsourcing:
+      snapshot-interval: 100
+      projection-poll-interval: 5s
 ```
 
----
+Key properties:
+
+| Property                                       | Default             | Description                                                            |
+|------------------------------------------------|---------------------|------------------------------------------------------------------------|
+| `persistence.provider`                         | `in-memory`         | Selects the persistence backend: `in-memory`, `redis`, `cache`, or `event-sourced`. |
+| `persistence.retention-period`                 | `7d`                | How long completed execution records are kept before cleanup.          |
+| `saga.compensation-policy`                     | `STRICT_SEQUENTIAL` | Default compensation strategy when a saga step fails.                   |
+| `saga.default-timeout` / `tcc.default-timeout` | `5m` / `30s`        | Default per-execution timeout for saga / TCC runs.                     |
+| `recovery.stale-threshold`                     | `1h`                | Age after which an in-flight execution is considered stale and recovered. |
+| `scheduling.thread-pool-size`                  | `4`                 | Threads backing cron/fixed-rate scheduled orchestrations.              |
+| `backpressure.strategy`                        | `adaptive`          | Backpressure strategy for high-throughput execution.                   |
+| `metrics.enabled` / `tracing.enabled` / `dlq.enabled` | `true`       | Toggle observability and dead-letter capture.                          |
+
+Optional features activate only when the matching dependency is present (e.g. Redis client for
+`provider: redis`, Resilience4j for `resilience.enabled`, `fireflyframework-eventsourcing` for
+`provider: event-sourced`).
 
 ## Documentation
 
-Full documentation lives in the [`docs/`](docs/README.md) folder:
+Comprehensive guides live in the [`docs/`](docs/README.md) folder:
 
 | Document | Description |
 |----------|-------------|
-| [Tutorial](docs/tutorial.md) | Step-by-step fintech payment processing example |
+| [Tutorial](docs/tutorial.md) | Step-by-step fintech payment-processing example |
 | [Foundations](docs/foundations.md) | Introduction, architecture, pattern selection |
 | [Workflow](docs/workflow.md) | Workflow annotations, builder, engine, signals/timers |
 | [Saga](docs/saga.md) | Saga annotations, builder, compensation, fan-out |
@@ -363,12 +399,15 @@ Full documentation lives in the [`docs/`](docs/README.md) folder:
 | [Configuration](docs/configuration.md) | Properties, auto-configuration, Spring Boot integration |
 | [Recipes & Production](docs/recipes-and-production.md) | Composition, testing, error handling, production checklist |
 
----
+See the [Firefly Framework module catalog](https://github.com/fireflyframework) for the full list of
+framework modules and how they fit together.
+
+## Contributing
+
+Contributions are welcome. Please read the [CONTRIBUTING.md](CONTRIBUTING.md) guide for details on our code of conduct, development process, and how to submit pull requests.
 
 ## License
 
-```
-Copyright 2024-2026 Firefly Software Foundation
+Copyright 2024-2026 Firefly Software Foundation.
 
-Licensed under the Apache License, Version 2.0
-```
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
