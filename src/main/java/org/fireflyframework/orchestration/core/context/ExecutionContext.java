@@ -115,8 +115,13 @@ public class ExecutionContext {
     public <T> T getVariableAs(String name, Class<T> type) { return (T) variables.get(name); }
     public void removeVariable(String name) { variables.remove(name); }
 
-    // Step results
-    public void putResult(String stepId, Object result) { stepResults.put(stepId, result); }
+    // Step results.
+    // Null-safe: a step that returns Mono<Void> (or an empty Mono) completes without
+    // emitting, and the engine records its success with a null result. stepResults is a
+    // ConcurrentHashMap, which rejects null values with an NPE, so a void step would
+    // otherwise fail the saga with a misleading "error=null". A missing key and a key
+    // mapped to null are indistinguishable via getResult, so simply skip null.
+    public void putResult(String stepId, Object result) { if (result != null) stepResults.put(stepId, result); }
     public Object getResult(String stepId) { return stepResults.get(stepId); }
     @SuppressWarnings("unchecked")
     public <T> T getResult(String stepId, Class<T> type) { return (T) stepResults.get(stepId); }
@@ -144,7 +149,8 @@ public class ExecutionContext {
     public Set<String> getIdempotencyKeys() { return Collections.unmodifiableSet(idempotencyKeys); }
 
     // Compensation tracking (Saga)
-    public void putCompensationResult(String stepId, Object value) { compensationResults.put(stepId, value); }
+    // Null-safe (see putResult): compensation methods commonly return Mono<Void>.
+    public void putCompensationResult(String stepId, Object value) { if (value != null) compensationResults.put(stepId, value); }
     public Object getCompensationResult(String stepId) { return compensationResults.get(stepId); }
     public void putCompensationError(String stepId, Throwable error) { compensationErrors.put(stepId, error); }
     public Throwable getCompensationError(String stepId) { return compensationErrors.get(stepId); }
@@ -161,7 +167,8 @@ public class ExecutionContext {
     // TCC-specific
     public TccPhase getCurrentPhase() { return currentPhase; }
     public void setCurrentPhase(TccPhase phase) { this.currentPhase = phase; }
-    public void putTryResult(String participantId, Object result) { tryResults.put(participantId, result); }
+    // Null-safe (see putResult): a TCC try participant may complete without a result.
+    public void putTryResult(String participantId, Object result) { if (result != null) tryResults.put(participantId, result); }
     public Object getTryResult(String participantId) { return tryResults.get(participantId); }
     public Map<String, Object> getTryResults() { return Collections.unmodifiableMap(tryResults); }
 
